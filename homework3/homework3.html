@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Homework 3 - Shader and Depth Practices</title>
+
+    <link rel="stylesheet" href="../css/bootstrap.min.css">
+
+    <script src="../js/jquery-3.5.1.min.js" type="text/javascript"></script>
+    <script src="../js/bootstrap.min.js" type="text/javascript"></script>
+    <script src="../GLjs/glMatrix-0.9.5.min.js" type="text/javascript"></script>
+</head>
+<body>
+    <div class="d-flex vh-100 justify-content-center align-items-center">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-12 text-center">
+                    <h2>10957037 張竣傑</h2>
+                    <small>Homework 3 - Shader and Depth Practices</small>
+                </div>
+                <div class="col-md-12 text-center">
+                    <canvas id="testing" style="border: none;" width="500" height="500"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script id="vertex-square" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+        attribute vec3 aVertexColor;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        varying vec3 aColor;
+
+        void calcPos(out vec4 fragPos){
+            fragPos = projection * view * model * vec4(aVertexPosition, 1.0); 
+        }
+        
+        void main(void) {
+            vec4 fragPos;
+            calcPos(fragPos);
+            gl_Position = fragPos;
+            aColor = aVertexColor;
+        }
+    </script>
+    <script id="fragment-square" type="x-shader/x-fragment">
+        precision mediump float;
+
+        varying vec3 aColor;
+
+    	void main(void) {
+            gl_FragColor = vec4(aColor, 1.0);
+        }
+    </script>
+    <script id="vertex-triangle-color" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+        uniform vec3 color;
+
+        varying vec3 aColor;
+
+        void calcPos(out vec4 fragPos){
+            fragPos = projection * view * model * vec4(aVertexPosition, 1.0); 
+        }
+        
+        void main(void) {
+            vec4 fragPos;
+            calcPos(fragPos);
+            gl_Position = fragPos;
+            aColor = color;
+        }
+    </script>
+    <script id="fragment-triangle-color" type="x-shader/x-fragment">
+        precision mediump float;
+
+        varying vec3 aColor;
+
+    	void main(void) {
+            gl_FragColor = vec4(aColor, 1.0);
+        }
+    </script>
+    <script id="vertex-triangle-discard" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        varying vec4 vShape;
+
+        void calcPos(out vec4 fragPos){
+            fragPos = projection * view * model * vec4(aVertexPosition, 1.0); 
+        }
+        
+        void main(void) {
+            vec4 fragPos;
+            calcPos(fragPos);
+            gl_Position = fragPos;
+            vShape = fragPos * 5.0;
+        }
+    </script>
+    <script id="fragment-triangle-discard" type="x-shader/x-fragment">
+        precision mediump float;
+
+        varying vec4 vShape;
+
+        float colorTan(in float value, in float width){
+            return (tan(value) + 1.0) / width;
+        }
+
+    	void main(void) {
+            gl_FragColor = vec4(colorTan(vShape.x, 2.0), 1.0, colorTan(vShape.y, 2.5), 1.0);
+            if(tan(vShape.x) < -0.9){
+                discard;
+            }
+        }
+    </script>
+
+    <script type="text/javascript">
+        $(function() {
+            let gl;
+            let model = mat4.identity(mat4.create());
+            let view = mat4.identity(mat4.create());
+            let projection = mat4.identity(mat4.create());
+            let triangleColor = vec3.create();
+
+            let square = {};
+            let triangle = {};
+
+            let shaderProgram1;
+            let shaderProgram2;
+            let shaderProgram3;
+
+            function webGLStart() {
+                let canvas = $('#testing')[0];
+                initGL(canvas);
+                initShaders();
+                initBuffers();
+
+                gl.clearColor(0.0, 0.0, 0.0, 1.0);
+                gl.enable(gl.DEPTH_TEST);
+                drawScene();
+            }
+
+            function initGL(canvas) {
+                try {
+                    gl = canvas.getContext('experimental-webgl');
+                    gl.viewportWidth = canvas.width;
+                    gl.viewportHeight = canvas.height;
+                } catch (e) {
+
+                }
+
+                if (!gl) {
+                    alert("Cloud not initialize WebGL.");
+                    console.error('Cloud not initialize WebGL.');
+                }
+            }
+
+            // create a shader
+            function createShader(gl, shaderID) {
+                let shader;
+                let shaderType = $(shaderID).attr('type');;
+                
+                if(shaderType == 'x-shader/x-vertex'){
+                    shader = gl.createShader(gl.VERTEX_SHADER);
+                }else if(shaderType == 'x-shader/x-fragment') {
+                    shader = gl.createShader(gl.FRAGMENT_SHADER);
+                }else {
+                    console.error('ERROR：The shader type is unknow.');
+                    return NULL;
+                }
+
+                let source = $(shaderID).html();
+                gl.shaderSource(shader, source);
+                gl.compileShader(shader);
+                if(!gl.getShaderParameter(shader, gl.COMPILE_STATUS)){
+                    console.error('ERROR：Failed to compile shader, type:' + shaderType + ', reason: ' + gl.getShaderInfoLog(shader));
+                    return NULL;
+                }
+
+                return shader;
+            }
+
+            // create and link shader program
+            function createProgram(vertexShaderID, fragmentShaderID) {
+                let vertexShader = createShader(gl, '#' + vertexShaderID);
+                let fragmentShader = createShader(gl, '#' + fragmentShaderID);
+
+                let shaderProgram = gl.createProgram();
+                gl.attachShader(shaderProgram, vertexShader);
+                gl.attachShader(shaderProgram, fragmentShader);
+                gl.linkProgram(shaderProgram);
+                if(!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)){
+                    console.error('ERROR：Failed to link the program' + ', reason: ' + gl.getProgramInfoLog(shaderProgram));
+                }
+
+                return shaderProgram;
+            }
+
+            // inital shaders
+            function initShaders() {
+                shaderProgram1 = createProgram('vertex-square', 'fragment-square');
+                shaderProgram2 = createProgram('vertex-triangle-color', 'fragment-triangle-color');
+                shaderProgram3 = createProgram('vertex-triangle-discard', 'fragment-triangle-discard');
+
+                gl.useProgram(shaderProgram1);
+                shaderProgram1.vertexPositionAttribute = gl.getAttribLocation(shaderProgram1, 'aVertexPosition');
+                shaderProgram1.vertexColorAttribute = gl.getAttribLocation(shaderProgram1, 'aVertexColor');
+                shaderProgram1.model = gl.getUniformLocation(shaderProgram1, 'model');
+                shaderProgram1.view = gl.getUniformLocation(shaderProgram1, 'view');
+                shaderProgram1.projection = gl.getUniformLocation(shaderProgram1, 'projection');
+
+                gl.useProgram(shaderProgram2);
+                shaderProgram2.vertexPositionAttribute = gl.getAttribLocation(shaderProgram2, 'aVertexPosition');
+                shaderProgram2.model = gl.getUniformLocation(shaderProgram2, 'model');
+                shaderProgram2.view = gl.getUniformLocation(shaderProgram2, 'view');
+                shaderProgram2.projection = gl.getUniformLocation(shaderProgram2, 'projection');
+                shaderProgram2.color = gl.getUniformLocation(shaderProgram2, 'color');
+
+                gl.useProgram(shaderProgram3);
+                shaderProgram3.vertexPositionAttribute = gl.getAttribLocation(shaderProgram3, 'aVertexPosition');
+                shaderProgram3.model = gl.getUniformLocation(shaderProgram3, 'model');
+                shaderProgram3.view = gl.getUniformLocation(shaderProgram3, 'view');
+                shaderProgram3.projection = gl.getUniformLocation(shaderProgram3, 'projection');
+            }
+
+            function setMatrixUniforms(type) {
+                if(type == 'square'){
+                    gl.useProgram(shaderProgram1);
+                    gl.uniformMatrix4fv(shaderProgram1.model, false, model);
+                    gl.uniformMatrix4fv(shaderProgram1.view, false, view);
+                    gl.uniformMatrix4fv(shaderProgram1.projection, false, projection);
+                }else if(type == 'triangle-color'){
+                    gl.useProgram(shaderProgram2);
+                    gl.uniformMatrix4fv(shaderProgram2.model, false, model);
+                    gl.uniformMatrix4fv(shaderProgram2.view, false, view);
+                    gl.uniformMatrix4fv(shaderProgram2.projection, false, projection);
+                    gl.uniform3fv(shaderProgram2.color, triangleColor);
+                }else if(type == 'triangle-discard'){
+                    gl.useProgram(shaderProgram3);
+                    gl.uniformMatrix4fv(shaderProgram3.model, false, model);
+                    gl.uniformMatrix4fv(shaderProgram3.view, false, view);
+                    gl.uniformMatrix4fv(shaderProgram3.projection, false, projection);
+                }
+            }
+
+            function initBuffers() {
+                square.vertices = [
+                    // position         // color
+                    1.0, -1.0, 0.0,     1.0, 0.2, 0.33,
+                    1.0, 1.0, 0.0,      0.2, 1.0, 0.33,
+                    -1.0, -1.0, 0.0,    0.2, 0.33, 1.0,
+                    -1.0, 1.0, 0.0,     1.0, 0.2, 1.0,
+                ];
+                square.vbo = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, square.vbo)
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(square.vertices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(shaderProgram1.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram1.vertexColorAttribute);
+
+                triangle.vertices = [
+                    // position
+                    -1.0, -1.0, 0.0,
+                    1.0, -1.0, 0.0,
+                    0.0, 1.0, 0.0,
+                ];
+                triangle.vbo = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, triangle.vbo)
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(triangle.vertices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(shaderProgram2.vertexPositionAttribute);
+            }
+
+            function drawScene() {
+                gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, projection);
+                mat4.translate(view, [0.0, 0.0, -5.0]);
+                mat4.translate(model, [0.0, 0.0, 0.0]);
+                
+                gl.bindBuffer(gl.ARRAY_BUFFER, square.vbo);
+                gl.vertexAttribPointer(shaderProgram1.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
+                gl.vertexAttribPointer(shaderProgram1.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                setMatrixUniforms('square');
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+                model = mat4.identity(mat4.create());
+                mat4.scale(model, [0.5, 0.5, 0.5]);
+                mat4.rotate(model, 3.1415, [0.0, 0.0, 1.0]);
+                mat4.translate(model, [0.0, 0.0, 1.0]);
+                triangleColor = vec3.create([1.0, 1.0, 0.33]);
+                gl.bindBuffer(gl.ARRAY_BUFFER, triangle.vbo);
+                gl.vertexAttribPointer(shaderProgram2.vertexPositionAttribute, 3, gl.FLOAT, false, 3 * Float32Array.BYTES_PER_ELEMENT, 0);
+                setMatrixUniforms('triangle-color');
+                gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+                model = mat4.identity(mat4.create());
+                mat4.scale(model, [0.5, 0.5, 0.5]);
+                mat4.translate(model, [0.0, 0.0, 1.1]);
+                // triangleColor = vec3.create([0.0, 1.0, 0.33]);
+                setMatrixUniforms('triangle-discard');
+                gl.drawArrays(gl.TRIANGLES, 0, 3);
+            }
+
+            webGLStart();
+            // console.log(gl);
+        });
+    </script>
+</body>
+</html>
