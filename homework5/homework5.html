@@ -121,6 +121,8 @@
             let lastFrame = 0;
             let deltaFrame = 0;
 
+            let color;
+
             function initGL(canvas) {
                 try {
                     gl = canvas.getContext('experimental-webgl');
@@ -231,7 +233,7 @@
                     gl.uniformMatrix4fv(shaderProgram2.model, false, topMatrix('model'));
                     gl.uniformMatrix4fv(shaderProgram2.view, false, topMatrix('view'));
                     gl.uniformMatrix4fv(shaderProgram2.projection, false, topMatrix('projection'));
-                    gl.uniform4fv(shaderProgram2.color, false, color);
+                    gl.uniform4fv(shaderProgram2.color, color);
                 }else {
                     console.error('ERROR：The shader program type is unknow.');
                 }
@@ -256,46 +258,45 @@
 
                 cube.vertices = [
                     // Front
-                    -1.0, 1.0, 1.0,     0.9, 0.1, 0.1,
-                    1.0, 1.0, 1.0,      0.9, 0.1, 0.1,
-                    1.0, -1.0, 1.0,     0.9, 0.1, 0.1,
-                    -1.0, -1.0, 1.0,    0.9, 0.1, 0.1,
+                    -1.0, 1.0, 1.0,     
+                    1.0, 1.0, 1.0,      
+                    1.0, -1.0, 1.0,  
+                    -1.0, -1.0, 1.0, 
 
                     // Back
-                    -1.0, 1.0, -1.0,    0.9, 0.1, 0.1,
-                    1.0, 1.0, -1.0,     0.9, 0.1, 0.1,
-                    1.0, -1.0, -1.0,    0.9, 0.1, 0.1,
-                    -1.0, -1.0, -1.0,   0.9, 0.1, 0.1,
+                    -1.0, 1.0, -1.0, 
+                    1.0, 1.0, -1.0,  
+                    1.0, -1.0, -1.0, 
+                    -1.0, -1.0, -1.0,
 
                     // Bottom
-                    -1.0, -1.0, -1.0,   0.1, 0.9, 0.1,
-                    1.0, -1.0, -1.0,    0.1, 0.9, 0.1,
-                    1.0, -1.0, 1.0,     0.1, 0.9, 0.1,
-                    -1.0, -1.0, 1.0,    0.1, 0.9, 0.1,
+                    -1.0, -1.0, -1.0,
+                    1.0, -1.0, -1.0, 
+                    1.0, -1.0, 1.0,  
+                    -1.0, -1.0, 1.0, 
 
                     // Top
-                    -1.0, 1.0, -1.0,    0.1, 0.9, 0.1,
-                    1.0, 1.0, -1.0,     0.1, 0.9, 0.1,
-                    1.0, 1.0, 1.0,      0.1, 0.9, 0.1,
-                    -1.0, 1.0, 1.0,     0.1, 0.9, 0.1,
+                    -1.0, 1.0, -1.0, 
+                    1.0, 1.0, -1.0,  
+                    1.0, 1.0, 1.0,   
+                    -1.0, 1.0, 1.0,  
 
                     // Left
-                    -1.0, 1.0, 1.0,     0.1, 0.1, 0.9,
-                    -1.0, 1.0, -1.0,    0.1, 0.1, 0.9,
-                    -1.0, -1.0, -1.0,   0.1, 0.1, 0.9,
-                    -1.0, -1.0, 1.0,    0.1, 0.1, 0.9,
+                    -1.0, 1.0, 1.0,  
+                    -1.0, 1.0, -1.0, 
+                    -1.0, -1.0, -1.0,
+                    -1.0, -1.0, 1.0, 
 
                     // Right
-                    1.0, 1.0, 1.0,      0.1, 0.1, 0.9,
-                    1.0, 1.0, -1.0,     0.1, 0.1, 0.9,
-                    1.0, -1.0, -1.0,    0.1, 0.1, 0.9,
-                    1.0, -1.0, 1.0,     0.1, 0.1, 0.9,
+                    1.0, 1.0, 1.0,   
+                    1.0, 1.0, -1.0,  
+                    1.0, -1.0, -1.0, 
+                    1.0, -1.0, 1.0,  
                 ];
                 cube.vbo = gl.createBuffer();
                 gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube.vertices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
+                gl.enableVertexAttribArray(shaderProgram2.vertexPositionAttribute);
                 cube.indices = [
                     0, 1, 2,        0, 2, 3,
                     4, 5, 6,        4, 6, 7,
@@ -517,9 +518,9 @@
                 pushMatrix('model');
                     gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
+                    gl.vertexAttribPointer(shaderProgram2.vertexPositionAttribute, 3, gl.FLOAT, false, 3 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    color = vec4.set(vec4.create(), 0.2, 0.8, 0.2, 1.0);
+                    setMatrixUniforms('shaderProgram2');
                     gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
                 popMatrix('model');
             }
@@ -535,6 +536,41 @@
                 popMatrix('model');
             }
 
+            function drawCreeper(){
+                pushMatrix('model');
+
+                    // Foot
+                    pushMatrix('model');
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                        mat4.scale(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                        drawCube();
+
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [2, 0, 0]);
+                        drawCube();
+
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [0, 0, -4]);
+                        drawCube();
+
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [-2, 0, 0]);
+                        drawCube();
+                    popMatrix('model');
+
+                    // Body
+                    pushMatrix('model');
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [4, 12, -2]);
+                        mat4.scale(topMatrix('model'), topMatrix('model'), [4, 6, 2]);
+                        drawCube();
+                    popMatrix('model');
+
+                    // // Head
+                    pushMatrix('model');
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [4, 22, -2]);
+                        mat4.scale(topMatrix('model'), topMatrix('model'), [4, 4, 4]);
+                        drawCube();
+                    popMatrix('model');
+                popMatrix('model');
+            }
+
             function drawScene() {
                 gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -547,50 +583,58 @@
                 vec3.add(camera.traget, camera.position, camera.direction);
                 mat4.lookAt(lookAtMatrix, camera.position, camera.traget, camera.worldUp);
                 mat4.multiply(topMatrix('view'), topMatrix('view'), lookAtMatrix);
-
-                drawFloor();
-
-                pushMatrix('model');
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 3, -0.10]);
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(cube.angle), [0.0, 1, 1]);
-                    mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
-                    drawCube();
-                popMatrix('model');
-
-                pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sphere.angle), [0.23, 0, 1.0]);
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
-                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
-                    mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
-                    drawSphere();
-                popMatrix('model');
-
+                
                 mat4.identity(topMatrix('model'));
-                mat4.scale(topMatrix('model'), topMatrix('model'), [0.8, 0.8, 0.8]);
-                mat4.translate(topMatrix('model'), topMatrix('model'), [-1.0, 0.5, 0.0]);
-                pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(hexagon.angle), [0, 1, 1]);
+                drawFloor();
+                
+                // pushMatrix('model');
+                //     mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 3, -0.10]);
+                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(cube.angle), [0.0, 1, 1]);
+                //     mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
+                //     drawCube();
+                // popMatrix('model');
 
-                    gl.bindBuffer(gl.ARRAY_BUFFER, hexagon.vbo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
-                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 6);
+                // pushMatrix('model');
+                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sphere.angle), [0.23, 0, 1.0]);
+                //     mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
+                //     // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
+                //     mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
+                //     drawSphere();
+                // popMatrix('model');
+                
+                pushMatrix('model');
+                    //mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 1.1, 0.0]);
+                    drawCreeper();
                 popMatrix('model');
 
-                mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
-                mat4.translate(topMatrix('model'), topMatrix('model'), [4.0, -1.5, 1.0]);
-                pushMatrix('model');
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [parallelogram.position.x, parallelogram.position.y, parallelogram.position.z]);
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(parallelogram.angle), [0, 0, 1]);
+
+
+                // mat4.identity(topMatrix('model'));
+                // mat4.scale(topMatrix('model'), topMatrix('model'), [0.8, 0.8, 0.8]);
+                // mat4.translate(topMatrix('model'), topMatrix('model'), [-1.0, 0.5, 0.0]);
+                // pushMatrix('model');
+                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(hexagon.angle), [0, 1, 1]);
+
+                //     gl.bindBuffer(gl.ARRAY_BUFFER, hexagon.vbo);
+                //     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
+                //     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                //     setMatrixUniforms();
+                //     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 6);
+                // popMatrix('model');
+
+                // mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
+                // mat4.translate(topMatrix('model'), topMatrix('model'), [4.0, -1.5, 1.0]);
+                // pushMatrix('model');
+                //     mat4.translate(topMatrix('model'), topMatrix('model'), [parallelogram.position.x, parallelogram.position.y, parallelogram.position.z]);
+                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(parallelogram.angle), [0, 0, 1]);
                     
 
-                    gl.bindBuffer(gl.ARRAY_BUFFER, parallelogram.vbo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
-                    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-                popMatrix('model');
+                //     gl.bindBuffer(gl.ARRAY_BUFFER, parallelogram.vbo);
+                //     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
+                //     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                //     setMatrixUniforms();
+                //     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                // popMatrix('model');
             }
 
             function webGLStart() {
