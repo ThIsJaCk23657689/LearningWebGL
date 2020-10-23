@@ -29,7 +29,7 @@
                 </div>
                 <div class="col-md-12 text-center">
                     camera.position: (<span id="positionX">0</span>, <span id="positionY">0</span>, <span id="positionZ">0</span>) <br/>
-                    camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>) <br/>
+                    camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>), Facing: <span id="facing">North</span> <br/>
                     camera.right: (<span id="rightX">0</span>, <span id="righty">0</span>, <span id="rightZ">0</span>) <br/>
                     camera.up: (<span id="upX">0</span>, <span id="upY">0</span>, <span id="upZ">0</span>) <br/>
                     camera.yaw: <span id="yaw">0</span> degree <br/>
@@ -87,20 +87,14 @@
 
             let gl;
 
-            let hexagon = {};
-            let parallelogram = {};
             let floor = {};
             let cube = {};
             let sphere = {};
-
             cube.angle = 0;
             sphere.angle = 0;
-            hexagon.angle = 0;
-            parallelogram.angle = 0;
-            parallelogram.position = {x:0, y:0, z:0};
 
             let camera = {};
-            camera.position = vec3.set(vec3.create(), 0, 2, 5);
+            camera.position = vec3.set(vec3.create(), 0, 3, 8);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
@@ -122,6 +116,8 @@
             let deltaFrame = 0;
 
             let color;
+            let creeper = {};
+            creeper.rotateAngle = 0;
 
             function initGL(canvas) {
                 try {
@@ -357,34 +353,6 @@
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sphere.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(sphere.indices), gl.STATIC_DRAW);
 
-                hexagon.vertices = [
-                    // position         // color
-                    -1.0, 0.0, 0.0,     1.0, 0.0, 0.0,
-                    -0.5, -0.8, 0.0,    0.0, 1.0, 0.0,
-                    -0.5, 0.8, 0.0,     0.0, 0.0, 1.0,
-                    0.5, -0.8, 0.0,     1.0, 1.0, 0.0,
-                    0.5, 0.8, 0.0,      1.0, 0.0, 1.0,
-                    1.0, 0.0, 0.0,      0.0, 1.0, 1.0,
-                ];
-                hexagon.vbo = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, hexagon.vbo);
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(hexagon.vertices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
-
-                parallelogram.vertices = [
-                    // position         // color
-                    -0.5, 0.5, 0.0,     1.0, 0.33, 0.33,
-                    -1.5, -0.5, 0.0,    1.0, 0.33, 0.33,
-                    1.5, 0.5, 0.0,      1.0, 0.33, 0.33,
-                    0.5, -0.5, 0.0,     1.0, 0.33, 0.33,
-                ];
-                parallelogram.vbo = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, parallelogram.vbo)
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(parallelogram.vertices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
-
                 initMatrix();
             }
 
@@ -417,32 +385,6 @@
                 }
 
                 updateCameraStatus();
-
-                // if(currentPressedKeys[38]){
-                //     // UP
-                //     parallelogram.position.z += 0.1;
-                // }
-                // if(currentPressedKeys[40]){
-                //     // DOWN
-                //     parallelogram.position.z -= 0.1;
-                // }
-                // if(currentPressedKeys[37]){
-                //     // LEFT
-                //     parallelogram.position.x += 0.1;
-                // }
-                // if(currentPressedKeys[39]){
-                //     // RIGHT
-                //     parallelogram.position.x -= 0.1;
-                // }
-
-                // if(currentPressedKeys[86]){
-                //     // v
-                //     hexagon.angle += 5;
-                // }
-                // if(currentPressedKeys[67]){
-                //     // c
-                //     hexagon.angle -= 5;
-                // }
             }
 
             function handleMouseMove(event) {
@@ -497,8 +439,10 @@
 
                     cube.angle += (80 * deltaFrame) / 1000.0;
                     sphere.angle += (50 * deltaFrame) / 1000.0;
-                    hexagon.angle += (40 * deltaFrame) / 1000.0;
-                    parallelogram.angle += (75 * deltaFrame) / 1000.0;
+
+                    creeper.rotateAngle -= (75 * deltaFrame) / 1000.0;
+
+                    // console.log(creeper);
                 }
                 lastFrame = currentFrame;
             }
@@ -519,7 +463,6 @@
                     gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
                     gl.vertexAttribPointer(shaderProgram2.vertexPositionAttribute, 3, gl.FLOAT, false, 3 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    color = vec4.set(vec4.create(), 0.2, 0.8, 0.2, 1.0);
                     setMatrixUniforms('shaderProgram2');
                     gl.drawElements(gl.TRIANGLES, 36, gl.UNSIGNED_SHORT, 0);
                 popMatrix('model');
@@ -537,22 +480,41 @@
             }
 
             function drawCreeper(){
+                creeper.walkAngle = Math.cos(deg2Rad(creeper.rotateAngle * 7.0)) * 30.0;
+		        creeper.headAngle = Math.sin(deg2Rad(creeper.rotateAngle * -2.0)) * 30.0;
+                creeper.eyeoffset = Math.sin(creeper.rotateAngle / 20) * 0.5 + 0.5;
+                mat4.scale(topMatrix('model'), topMatrix('model'), [0.1, 0.1, 0.1]);
                 pushMatrix('model');
-
+                    color = vec4.set(vec4.create(), 0.2, 0.8, 0.2, 1.0);
                     // Foot
                     pushMatrix('model');
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
-                        mat4.scale(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
-                        drawCube();
+                        pushMatrix('model');
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                            mat4.rotate(topMatrix("model"), topMatrix('model'), deg2Rad(creeper.walkAngle), [1, 0, 0]);
+                            mat4.scale(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                            drawCube();
+                        popMatrix('model');
 
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [2, 0, 0]);
-                        drawCube();
+                        pushMatrix('model');
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [6, 3, 2]);
+                            mat4.rotate(topMatrix("model"), topMatrix('model'), -deg2Rad(creeper.walkAngle), [1, 0, 0]);
+                            mat4.scale(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                            drawCube();
+                        popMatrix('model');
 
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [0, 0, -4]);
-                        drawCube();
+                        pushMatrix('model');
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [6, 3, -6]);
+                            mat4.rotate(topMatrix("model"), topMatrix('model'), -deg2Rad(creeper.walkAngle), [1, 0, 0]);
+                            mat4.scale(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                            drawCube();
+                        popMatrix('model');
 
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [-2, 0, 0]);
-                        drawCube();
+                        pushMatrix('model');
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [2, 3, -6]);
+                            mat4.rotate(topMatrix("model"), topMatrix('model'), deg2Rad(creeper.walkAngle), [1, 0, 0]);
+                            mat4.scale(topMatrix('model'), topMatrix('model'), [2, 3, 2]);
+                            drawCube();
+                        popMatrix('model');
                     popMatrix('model');
 
                     // Body
@@ -562,12 +524,46 @@
                         drawCube();
                     popMatrix('model');
 
-                    // // Head
+                    // Head
                     pushMatrix('model');
                         mat4.translate(topMatrix('model'), topMatrix('model'), [4, 22, -2]);
+                        mat4.rotate(topMatrix("model"), topMatrix("model"), deg2Rad(creeper.headAngle), [0, 1, 0]);
                         mat4.scale(topMatrix('model'), topMatrix('model'), [4, 4, 4]);
                         drawCube();
+
+                        color = vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0);
+                        // Eyes
+                        mat4.scale(topMatrix('model'), topMatrix('model'), [0.25, 0.25, 0.5]);
+                        pushMatrix('model');
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [-2, 1, 1.1]);
+                            drawCube();
+
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [4, 0, 0]);
+                            drawCube();
+
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [-2, -2, 0]);
+                            drawCube();
+
+                            pushMatrix('model');
+                                mat4.translate(topMatrix('model'), topMatrix('model'), [-1.5, -1, 0]);
+                                mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 1, 1]);
+                                drawCube();
+                                mat4.translate(topMatrix('model'), topMatrix('model'), [6, 0, 0]);
+                                drawCube();
+                            popMatrix('model');
+
+                            color = vec4.set(vec4.create(), 1.0, 0.0, 0.0, 1.0);
+                            pushMatrix('model');
+                                mat4.translate(topMatrix('model'), topMatrix('model'), [-1.5, 1.5 + creeper.eyeoffset, 0.7]);
+                                mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
+                                drawCube();
+                                mat4.translate(topMatrix('model'), topMatrix('model'), [6, 0, 0]);
+                                drawCube();
+                            popMatrix('model');
+
+                        popMatrix('model');
                     popMatrix('model');
+                    
                 popMatrix('model');
             }
 
@@ -587,54 +583,28 @@
                 mat4.identity(topMatrix('model'));
                 drawFloor();
                 
-                // pushMatrix('model');
-                //     mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 3, -0.10]);
-                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(cube.angle), [0.0, 1, 1]);
-                //     mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
-                //     drawCube();
-                // popMatrix('model');
-
-                // pushMatrix('model');
-                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sphere.angle), [0.23, 0, 1.0]);
-                //     mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
-                //     // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
-                //     mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
-                //     drawSphere();
-                // popMatrix('model');
-                
+                color = vec4.set(vec4.create(), 0.9, 0.3, 0.9, 1.0);
                 pushMatrix('model');
-                    //mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 1.1, 0.0]);
-                    drawCreeper();
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 3, -0.10]);
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(cube.angle), [0.0, 1, 1]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
+                    drawCube();
                 popMatrix('model');
 
-
-
-                // mat4.identity(topMatrix('model'));
-                // mat4.scale(topMatrix('model'), topMatrix('model'), [0.8, 0.8, 0.8]);
-                // mat4.translate(topMatrix('model'), topMatrix('model'), [-1.0, 0.5, 0.0]);
-                // pushMatrix('model');
-                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(hexagon.angle), [0, 1, 1]);
-
-                //     gl.bindBuffer(gl.ARRAY_BUFFER, hexagon.vbo);
-                //     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                //     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                //     setMatrixUniforms();
-                //     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 6);
-                // popMatrix('model');
-
-                // mat4.scale(topMatrix('model'), topMatrix('model'), [0.5, 0.5, 0.5]);
-                // mat4.translate(topMatrix('model'), topMatrix('model'), [4.0, -1.5, 1.0]);
-                // pushMatrix('model');
-                //     mat4.translate(topMatrix('model'), topMatrix('model'), [parallelogram.position.x, parallelogram.position.y, parallelogram.position.z]);
-                //     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(parallelogram.angle), [0, 0, 1]);
-                    
-
-                //     gl.bindBuffer(gl.ARRAY_BUFFER, parallelogram.vbo);
-                //     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                //     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                //     setMatrixUniforms();
-                //     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-                // popMatrix('model');
+                pushMatrix('model');
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sphere.angle), [0.23, 0, 1.0]);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
+                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
+                    drawSphere();
+                popMatrix('model');
+                
+                pushMatrix('model');
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(creeper.rotateAngle * 0.8), [0, 1, 0]);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [3, 1.1, 0]);
+                    //mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(90), [0, 1, 0]);
+                    drawCreeper();
+                popMatrix('model');
             }
 
             function webGLStart() {
@@ -674,20 +644,33 @@
             }
 
             function updateCameraStatus() {
-                $('#positionX').text(camera.position[0]);
-                $('#positionY').text(camera.position[1]);
-                $('#positionZ').text(camera.position[2]);
-                $('#directionX').text(camera.direction[0]);
-                $('#directionY').text(camera.direction[1]);
-                $('#directionZ').text(camera.direction[2]);
-                $('#rightX').text(camera.right[0]);
-                $('#rightY').text(camera.right[1]);
-                $('#rightZ').text(camera.right[2]);
-                $('#upX').text(camera.up[0]);
-                $('#upY').text(camera.up[1]);
-                $('#upZ').text(camera.up[2]);
-                $('#yaw').text(camera.yaw);
-                $('#pitch').text(camera.pitch);
+                $('#positionX').text(Math.round(camera.position[0]));
+                $('#positionY').text(Math.round(camera.position[1]));
+                $('#positionZ').text(Math.round(camera.position[2]));
+                $('#directionX').text(Math.round(camera.direction[0] * 1000) / 1000);
+                $('#directionY').text(Math.round(camera.direction[1] * 1000) / 1000);
+                $('#directionZ').text(Math.round(camera.direction[2] * 1000) / 1000);
+                $('#rightX').text(Math.round(camera.right[0] * 1000) / 1000);
+                $('#rightY').text(Math.round(camera.right[1] * 1000) / 1000);
+                $('#rightZ').text(Math.round(camera.right[2] * 1000) / 1000);
+                $('#upX').text(Math.round(camera.up[0] * 1000) / 1000);
+                $('#upY').text(Math.round(camera.up[1] * 1000) / 1000);
+                $('#upZ').text(Math.round(camera.up[2] * 1000) / 1000);
+                $('#yaw').text(Math.round(camera.yaw * 10) / 10);
+                $('#pitch').text(Math.round(camera.pitch * 10) / 10);
+
+                $('#facing').text('');
+                if(Math.round(camera.direction[2]) == 1) {
+                    $('#facing').text('South');
+                }else if(Math.round(camera.direction[2]) == -1) {
+                    $('#facing').text('North');
+                }else {
+                    if(Math.round(camera.direction[0]) == 1){
+                        $('#facing').text('East');
+                    }else {
+                        $('#facing').text('West');
+                    }
+                }
             }
 
             webGLStart();
