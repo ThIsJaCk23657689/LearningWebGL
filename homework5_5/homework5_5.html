@@ -24,16 +24,20 @@
                 </div>
                 <div class="col-md-12 text-center">
                     <p>
+                        F 開啟 / 關閉 XYZ 軸 <br/>
                         W / S / A / D 可以移動攝影機 <br/>
+                        點擊畫面即可使用滑鼠移動視角 <br/>
+                        T / Y 可以 測滾 相機 <br/>
+                        C / V 可以 降低 / 提高 轉速 <br/>
                     </p>
                 </div>
                 <div class="col-md-12 text-center">
+                    Year: <span id="years">0</span>, Months <span id="months">0</span>, Days <span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
+                    camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree , camera.roll(Z): <span id="roll">0</span> degree <br/>
                     camera.position: (<span id="positionX">0</span>, <span id="positionY">0</span>, <span id="positionZ">0</span>) <br/>
                     camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>), Facing: <span id="facing">North</span> <br/>
                     camera.right: (<span id="rightX">0</span>, <span id="righty">0</span>, <span id="rightZ">0</span>) <br/>
                     camera.up: (<span id="upX">0</span>, <span id="upY">0</span>, <span id="upZ">0</span>) <br/>
-                    camera.yaw: <span id="yaw">0</span> degree <br/>
-                    camera.pitch: <span id="pitch">0</span> degree <br/>
                 </div>
             </div>
         </div>
@@ -92,14 +96,22 @@
             let sun = {};
             let earth = {};
             let moon = {};
+
             sun.angle = 0;
             earth.angle = 0;
             moon.angle = 0;
+            earth.globalAngle = 0;
+            earth.speed = 5000;
+
+            let virtual_time = {};
+            virtual_time.years = 0;
+            virtual_time.months = 0;
+            virtual_time.days = 0;
 
             let color;
 
             let camera = {};
-            camera.position = vec3.set(vec3.create(), 10, 3, 22);
+            camera.position = vec3.set(vec3.create(), 9, 0, 57);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
@@ -107,6 +119,7 @@
             camera.right = vec3.normalize(vec3.create(), vec3.cross(vec3.create(), camera.direction, camera.worldUp));
             camera.movespeed = 0.01;
             camera.sensitivity = 0.05;
+            camera.roll = 0;
             camera.pitch = 0;
             camera.yaw = 0;
 
@@ -119,6 +132,8 @@
 
             let lastFrame = 0;
             let deltaFrame = 0;
+
+            let axisOff = false;
 
             function initGL(canvas) {
                 try {
@@ -309,7 +324,7 @@
 
                 genSphereBuffer(sun, 8, 30, 30, vec3.set(vec3.create(), 1, 0.8, 0));
                 genSphereBuffer(earth, 1, 30, 30, vec3.set(vec3.create(), 0, 0.5, 1));
-                genSphereBuffer(moon, 0.5, 30, 30, vec3.set(vec3.create(), 0.6, 0.8, 0.6));
+                genSphereBuffer(moon, 0.27, 30, 30, vec3.set(vec3.create(), 0.6, 0.8, 0.6));
 
                 initMatrix();
             }
@@ -374,6 +389,15 @@
             function handleKeyDown(event) {
                 //console.log(event.keyCode);
                 currentPressedKeys[event.keyCode] = true;
+
+                // F
+                if(currentPressedKeys[70]){
+                    if(axisOff){
+                        axisOff = false;
+                    }else{
+                        axisOff = true;
+                    }
+                }
             }
 
             function handleKeyUp(event) {
@@ -397,6 +421,45 @@
                 if(currentPressedKeys[68]){
                     // d
                     vec3.add(camera.position, camera.position, vec3.scale(vec3.create(), camera.right, velocity));
+                }
+
+                if(currentPressedKeys[86]){
+                    // v
+                    if(earth.speed < 20000){
+                        earth.speed += 10 * deltaFrame;
+                    }else{
+                        earth.speed = 20000;
+                        console.error("轉速只能介於0到20000之間。");
+                    }
+                }
+                if(currentPressedKeys[67]){
+                    // c
+                    if(earth.speed > 0){
+                        earth.speed -= 10 * deltaFrame;
+                    }else{
+                        earth.speed = 0;
+                        console.error("轉速只能介於0到20000之間。");
+                    }
+                }
+
+                if(currentPressedKeys[84]){
+                    // t
+                    if(camera.roll < 180){
+                        camera.roll += 0.1 * deltaFrame;
+                    }else{
+                        camera.roll = 180;
+                    }
+                    updateCameraParameter();
+                }
+
+                if(currentPressedKeys[89]){
+                    // y
+                    if(camera.roll > -180){
+                        camera.roll -= 0.1 * deltaFrame;
+                    }else{
+                        camera.roll = -180;
+                    }
+                    updateCameraParameter();
                 }
 
                 updateCameraStatus();
@@ -426,18 +489,34 @@
                     camera.yaw += 360.0;
                 }
 
+                updateCameraParameter();
+            }
+
+            function updateCameraParameter(){
                 let rotatematrix = mat4.create();
+                
                 mat4.rotate(rotatematrix, rotatematrix, deg2Rad(camera.yaw), [0, 1, 0]);
                 mat4.rotate(rotatematrix, rotatematrix, deg2Rad(camera.pitch), [1, 0, 0]);
-
+                
                 let direction = vec4.set(vec4.create(), 0, 0, -1, 1);
                 vec4.transformMat4(direction, direction, rotatematrix);
+
+                camera.worldUp = vec4.set(vec4.create(), 0, 1, 0, 1);
+                let rotatez = mat4.create();
+                mat4.rotate(rotatez, rotatez, deg2Rad(camera.roll), [0, 0, 1]);
+                vec4.transformMat4(camera.worldUp, camera.worldUp, rotatez);
                 
                 camera.direction = vec3.normalize(vec3.create(), vec3.set(vec3.create(), direction[0], direction[1], direction[2]));
                 camera.right = vec3.normalize(vec3.create(), vec3.cross(vec3.create(), camera.direction, camera.worldUp));
                 camera.up = vec3.normalize(vec3.create(), vec3.cross(vec3.create(), camera.right, camera.direction));
 
                 updateCameraStatus();
+            }
+
+            function handleMouseDown(event){
+                
+
+                console.log(camera.roll);
             }
 
             function tick() {
@@ -452,6 +531,45 @@
                 if(lastFrame != 0) {
                     deltaFrame = currentFrame - lastFrame;
                     //sun.angle += (50 * deltaFrame) / 1000.0;
+                    // sun.angle = 0;
+                    // earth.angle = 0;
+                    
+                    // sun.globalAngle = 0;
+                    // earth.globalAngle = 0;
+                    // moon.globalAngle = 0;
+                    
+
+                    earth.angle += (earth.speed * deltaFrame) / 1000.0;
+                    if(earth.angle > 360){
+                        earth.angle = earth.angle - 360;
+                        virtual_time.days += 1;
+                    }
+
+                    moon.angle += earth.speed / 30 * deltaFrame / 1000.0;
+                    if(moon.angle > 360){
+                        moon.angle = moon.angle - 360;
+                    }
+
+                    if(virtual_time.days > 30){
+                        virtual_time.months += 1;
+                        virtual_time.days -= 30;
+                    }
+
+                    earth.globalAngle += (earth.speed/365 * deltaFrame) / 1000.0;
+                    if(earth.globalAngle > 360){
+                        earth.globalAngle = earth.globalAngle - 360;
+                    }
+
+                    if(virtual_time.months > 12){
+                        virtual_time.days = 0;
+                        virtual_time.months -= 12;
+                        virtual_time.years += 1;
+                    }
+
+                    sun.angle += (earth.speed / 27 * deltaFrame) / 1000.0;
+                    if(sun.angle > 360){
+                        sun.angle = sun.angle - 360;
+                    }
                 }
                 lastFrame = currentFrame;
             }
@@ -478,11 +596,24 @@
             }
 
             function drawAxis(radius){
+                let cubesize = radius * 0.025;
+                let offset = radius * 0.25;
                 pushMatrix('model');
                     color = vec4.set(vec4.create(), 1.0, 0.0, 0.0, 1.0);
-                    // mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
-                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
-                    mat4.scale(topMatrix('model'), topMatrix('model'), [radius + 2, 0.2, 0.2]);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [radius / 2 + offset, 0, 0]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [radius / 2 + offset, cubesize, cubesize]);
+                    drawCube();
+                popMatrix('model');
+                pushMatrix('model');
+                    color = vec4.set(vec4.create(), 0.0, 1.0, 0.0, 1.0);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [0, radius / 2 + offset, 0]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [cubesize, radius / 2 + offset, cubesize]);
+                    drawCube();
+                popMatrix('model');
+                pushMatrix('model');
+                    color = vec4.set(vec4.create(), 0.0, 0.0, 1.0, 1.0);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [0, 0, radius / 2 + offset]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [cubesize, cubesize, radius / 2 + offset]);
                     drawCube();
                 popMatrix('model');
             }
@@ -495,7 +626,9 @@
                     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
                     setMatrixUniforms();
                     gl.drawElements(gl.TRIANGLES, sun.indices.length, gl.UNSIGNED_SHORT, 0);
-                    drawAxis(sun.radius)
+                    if(!axisOff){
+                        drawAxis(sun.radius);
+                    }
                 popMatrix('model');
             }
 
@@ -507,6 +640,9 @@
                     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
                     setMatrixUniforms();
                     gl.drawElements(gl.TRIANGLES, earth.indices.length, gl.UNSIGNED_SHORT, 0);
+                    if(!axisOff){
+                        drawAxis(earth.radius);
+                    }
                 popMatrix('model');
             }
 
@@ -518,6 +654,9 @@
                     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
                     setMatrixUniforms();
                     gl.drawElements(gl.TRIANGLES, moon.indices.length, gl.UNSIGNED_SHORT, 0);
+                    if(!axisOff){
+                        drawAxis(moon.radius);
+                    }
                 popMatrix('model');
             }
 
@@ -538,27 +677,28 @@
                 // drawFloor();
 
                 pushMatrix('model');
-                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0.23, 0, 1.0]);
-                    // mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
-                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
-                    // mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
-                    drawSun();
-                popMatrix('model');
-
-                pushMatrix('model');
-                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0.23, 0, 1.0]);
-                    // mat4.translate(topMatrix('model'), topMatrix('model'), [0.0, 80, -60]);
-                    // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
-                    // mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [10, 0, 0]);
-                    drawEarth();
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0, 1, 0]);
+                        drawSun();
+                    popMatrix('model');
 
                     pushMatrix('model');
-                        // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0.23, 0, 1.0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [5, 0, 0]);
-                        // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(45), [0.0, 1, 1]);
-                        // mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
-                        drawMoon();
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.globalAngle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [25, 0, 25]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
+                            drawEarth();
+                        popMatrix('model');
+
+                        
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.angle), [0, 1, 0]);
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [5, 0, 0]);
+                            // 不用加上月球自轉，因為前者的旋轉就是針對月球的 local coordinate 
+                            // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(0), [0, 1, 0]);
+                            drawMoon();
+                        popMatrix('model');
                     popMatrix('model');
                 popMatrix('model');
             }
@@ -593,9 +733,11 @@
                 if (document.pointerLockElement === canvas || document.mozPointerLockElement === canvas) {
                     console.log('The pointer lock status is now locked');
                     document.addEventListener("mousemove", handleMouseMove, false);
+                    document.addEventListener("mousedown", handleMouseDown, false);
                 } else {
                     console.log('The pointer lock status is now unlocked');
                     document.removeEventListener("mousemove", handleMouseMove, false);
+                    document.removeEventListener("mousedown", handleMouseDown, false);
                 }
             }
 
@@ -612,9 +754,6 @@
                 $('#upX').text(Math.round(camera.up[0] * 1000) / 1000);
                 $('#upY').text(Math.round(camera.up[1] * 1000) / 1000);
                 $('#upZ').text(Math.round(camera.up[2] * 1000) / 1000);
-                $('#yaw').text(Math.round(camera.yaw * 10) / 10);
-                $('#pitch').text(Math.round(camera.pitch * 10) / 10);
-
                 $('#facing').text('');
                 if(Math.round(camera.direction[2]) == 1) {
                     $('#facing').text('South');
@@ -627,6 +766,14 @@
                         $('#facing').text('West');
                     }
                 }
+
+                $('#years').text(virtual_time.years);
+                $('#months').text(virtual_time.months);
+                $('#days').text(virtual_time.days);
+                $('#speed').text(earth.speed);
+                $('#yaw').text(Math.round(camera.yaw * 10) / 10);
+                $('#pitch').text(Math.round(camera.pitch * 10) / 10);
+                $('#roll').text(Math.round(camera.roll * 10) / 10);
             }
 
             webGLStart();

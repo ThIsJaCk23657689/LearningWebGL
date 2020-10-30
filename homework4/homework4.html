@@ -24,6 +24,7 @@
                 </div>
                 <div class="col-md-12 text-center">
                     <p>
+                        F 切換著色器 <br>
                         ↑ ↓ ← → 上下左右來移動平行四邊形 (方向會相反) <br/>
                         C / V 可以  左旋 / 右旋 六角形  <br/>
                         W / S / A / D 可以移動攝影機 <br/>
@@ -57,6 +58,38 @@
             gl_FragColor = vec4(aColor, 1.0);
         }
     </script>
+    <script id="vertex-discard" type="x-shader/x-vertex">
+        attribute vec3 aVertexPosition;
+        attribute vec3 aVertexColor;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        varying vec4 vShape;
+        
+        void main(void) {
+            vec4 fragPos = projection * view * model * vec4(aVertexPosition, 1.0);
+            gl_Position = fragPos;
+            vShape = fragPos * 5.0;
+        }
+    </script>
+    <script id="fragment-discard" type="x-shader/x-fragment">
+        precision mediump float;
+
+        varying vec4 vShape;
+
+        float colorTan(in float value, in float width){
+            return (tan(value) + 1.0) / width;
+        }
+
+    	void main(void) {
+            gl_FragColor = vec4(colorTan(vShape.x, 2.0), 1.0, colorTan(vShape.y, 2.5), 1.0);
+            if(tan(vShape.x) < -0.9){
+                discard;
+            }
+        }
+    </script>
 
     <script type="text/javascript">
         $(function() {
@@ -84,6 +117,8 @@
 
             let lastFrame = 0;
             let deltaFrame = 0;
+            
+            let switchShader = true;
 
             function initGL(canvas) {
                 try {
@@ -144,6 +179,7 @@
             // inital shaders
             function initShaders() {
                 shaderProgram = createProgram('vertex', 'fragment');
+                shaderProgram2 = createProgram('vertex-discard', 'fragment-discard');
 
                 gl.useProgram(shaderProgram);
                 shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
@@ -151,6 +187,13 @@
                 shaderProgram.model = gl.getUniformLocation(shaderProgram, 'model');
                 shaderProgram.view = gl.getUniformLocation(shaderProgram, 'view');
                 shaderProgram.projection = gl.getUniformLocation(shaderProgram, 'projection');
+                
+                gl.useProgram(shaderProgram2);
+                shaderProgram2.vertexPositionAttribute = gl.getAttribLocation(shaderProgram2, 'aVertexPosition');
+                shaderProgram2.vertexColorAttribute = gl.getAttribLocation(shaderProgram2, 'aVertexColor');
+                shaderProgram2.model = gl.getUniformLocation(shaderProgram2, 'model');
+                shaderProgram2.view = gl.getUniformLocation(shaderProgram2, 'view');
+                shaderProgram2.projection = gl.getUniformLocation(shaderProgram2, 'projection');
             }
 
             function initMatrix() {
@@ -176,11 +219,20 @@
                 Matries[matrix_mode].pop();
             }
 
-            function setMatrixUniforms() {
-                gl.useProgram(shaderProgram);
-                gl.uniformMatrix4fv(shaderProgram.model, false, topMatrix('model'));
-                gl.uniformMatrix4fv(shaderProgram.view, false, topMatrix('view'));
-                gl.uniformMatrix4fv(shaderProgram.projection, false, topMatrix('projection'));
+            function setMatrixUniforms(type = 'shaderProgram') {
+                if(type == 'shaderProgram') {
+                    gl.useProgram(shaderProgram);
+                    gl.uniformMatrix4fv(shaderProgram.model, false, topMatrix('model'));
+                    gl.uniformMatrix4fv(shaderProgram.view, false, topMatrix('view'));
+                    gl.uniformMatrix4fv(shaderProgram.projection, false, topMatrix('projection'));
+                }else if(type == 'shaderProgram2') {
+                    gl.useProgram(shaderProgram2);
+                    gl.uniformMatrix4fv(shaderProgram2.model, false, topMatrix('model'));
+                    gl.uniformMatrix4fv(shaderProgram2.view, false, topMatrix('view'));
+                    gl.uniformMatrix4fv(shaderProgram2.projection, false, topMatrix('projection'));
+                }else {
+                    console.error('ERROR：The shader program type is unknow.');
+                }
             }
 
             function deg2Rad(degrees) {
@@ -222,6 +274,15 @@
             function handleKeyDown(event) {
                 //console.log(event.keyCode);
                 currentPressedKeys[event.keyCode] = true;
+
+                // F
+                if(currentPressedKeys[70]){
+                    if(switchShader){
+                        switchShader = false;
+                    }else{
+                        switchShader = true;
+                    }
+                }
             }
 
             function handleKeyUp(event) {
@@ -271,6 +332,8 @@
                     // c
                     hexagon.angle -= 5;
                 }
+
+                
             }
 
             function tick() {
@@ -313,7 +376,11 @@
                     gl.bindBuffer(gl.ARRAY_BUFFER, hexagon.vbo);
                     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
                     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
+                    if(switchShader){
+                        setMatrixUniforms();
+                    }else{
+                        setMatrixUniforms('shaderProgram2');
+                    }
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 6);
                 popMatrix('model');
 
@@ -327,7 +394,11 @@
                     gl.bindBuffer(gl.ARRAY_BUFFER, parallelogram.vbo);
                     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
                     gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
+                    if(switchShader){
+                        setMatrixUniforms();
+                    }else{
+                        setMatrixUniforms('shaderProgram2');
+                    }
                     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
                 popMatrix('model');
             }
