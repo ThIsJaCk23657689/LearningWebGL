@@ -113,7 +113,11 @@
 
     	void main(void) {
             if (enableTexture) {
-                gl_FragColor = texture2D(texture1, textureCoord);
+                vec4 texColor = texture2D(texture1, textureCoord);
+                if(texColor.a < 0.1) {
+                    discard;
+                }
+                gl_FragColor = texColor;
             } else {
                 gl_FragColor = vec4(color, 1.0);
             }
@@ -129,15 +133,19 @@
             let gl;
 
             let cube = {};
+            let sphere = {};
+            let space = {};
             let sun = {};
             let earth = {};
+            let earth_cloud = {};
             let moon = {};
 
+            space.angle = 0;
             sun.angle = 0;
             earth.angle = 0;
             moon.angle = 0;
             earth.globalAngle = 0;
-            earth.speed = 5000;
+            earth.speed = 200;
 
             let virtual_time = {};
             virtual_time.years = 0;
@@ -145,8 +153,8 @@
             virtual_time.days = 0;
 
             let camera = {};
-            //camera.position = vec3.set(vec3.create(), 9, 0, 57);
-            camera.position = vec3.set(vec3.create(), 0, 0, 4);
+            camera.position = vec3.set(vec3.create(), 25, 0, 28);
+            // camera.position = vec3.set(vec3.create(), 9, 0, 57);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
@@ -267,8 +275,6 @@
                 texture.image = new Image();
                 
                 texture.image.onload = function() {
-                    texture.image.width = this.width;
-                    texture.image.height = this.height;
                     handleLoadedTexture(texture);
                 }
 
@@ -277,13 +283,12 @@
             }
 
             function handleLoadedTexture(texture) {
-                console.log(texture);
                 gl.bindTexture(gl.TEXTURE_2D, texture);
                 gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
                 // gl.generateMipmap(gl.TEXTURE_2D);
 
-                // gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-                // gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                //gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                //gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
                 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
                 gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
                 gl.bindTexture(gl.TEXTURE_2D, null);
@@ -343,12 +348,12 @@
 
             function initBuffers() {
                 cube.vertices = [
-                    // Vertex           // Normal           // Texture Coord
+                    // Vertex           // Texture Coord
 
                     // Front            
-                    -1.0,  1.0,  1.0,   0.0, 0.0, 1.0,      0.0, 0.0,
-                     1.0,  1.0,  1.0,   0.0, 0.0, 1.0,      0.0, 0.0, 
-                     1.0, -1.0,  1.0,   0.0, 0.0, 1.0,      0.0, 0.0,
+                    -1.0,  1.0,  1.0,   0.0, 0.0, 1.0,      1.0, 0.0,
+                     1.0,  1.0,  1.0,   0.0, 0.0, 1.0,      1.0, 1.0, 
+                     1.0, -1.0,  1.0,   0.0, 0.0, 1.0,      0.0, 1.0,
                     -1.0, -1.0,  1.0,   0.0, 0.0, 1.0,      0.0, 0.0,
 
                     // Back
@@ -381,10 +386,6 @@
                      1.0, -1.0, -1.0,   1.0, 0.0, 0.0,     0.0, 1.0,
                      1.0, -1.0,  1.0,   1.0, 0.0, 0.0,     0.0, 0.0,
                 ];
-                cube.vbo = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube.vertices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram2.vertexPositionAttribute);
                 cube.indices = [
                     0, 1, 2,        0, 2, 3,
                     4, 5, 6,        4, 6, 7,
@@ -393,19 +394,27 @@
                     16, 17, 18,     16, 18, 19,
                     20, 21, 22,     20, 22, 23,
                 ];
+                cube.vbo = gl.createBuffer();
                 cube.ebo = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube.vertices), gl.STATIC_DRAW);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cube.indices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(shaderProgram3.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram3.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram3.textureCoordAttribute);
                 
-
-                genSphereBuffer(sun, 8, 30, 30, vec3.set(vec3.create(), 1, 0.8, 0));
-                genSphereBuffer(earth, 1, 30, 30, vec3.set(vec3.create(), 0, 0.5, 1));
-                genSphereBuffer(moon, 0.27, 30, 30, vec3.set(vec3.create(), 0.6, 0.8, 0.6));
+                genSphereBuffer(sphere, 1, 30, 30);
+                genSphereBuffer(space, 200, 30, 30);
+                genSphereBuffer(sun, 8, 30, 30);
+                genSphereBuffer(earth, 0.9, 30, 30);
+                genSphereBuffer(earth_cloud, 1, 30, 30);
+                genSphereBuffer(moon, 0.27, 30, 30);
 
                 initMatrix();
             }
 
-            function genSphereBuffer(obj, radius, lati, long, color){
+            function genSphereBuffer(obj, radius, lati, long){
                 obj.radius = radius;
                 obj.latitude = lati;
                 obj.longitude = long;
@@ -428,9 +437,19 @@
                         obj.vertices.push(obj.radius * x);
                         obj.vertices.push(obj.radius * y);
                         obj.vertices.push(obj.radius * z);
-                        obj.vertices.push(color[0]);
-                        obj.vertices.push(color[1]);
-                        obj.vertices.push(color[2]);
+
+                        // Generate normal vector
+                        let temp = vec3.set(vec3.create(), 2 * obj.radius * x , 2 * obj.radius * y, 2 * obj.radius * z);
+                        let normal = vec3.normalize(vec3.create(), temp);
+                        obj.vertices.push(normal[0]);
+                        obj.vertices.push(normal[1]);
+                        obj.vertices.push(normal[2]);
+
+                        // Generate texture coordinate
+                        let u = 1 - (j / obj.longitude);
+                        let v = 1 - (i / obj.latitude);
+                        obj.vertices.push(u);
+                        obj.vertices.push(v * -1);
                     }
                 }
 
@@ -452,14 +471,14 @@
 
                 // Bind buffer
                 obj.vbo = gl.createBuffer();
+                obj.ebo = gl.createBuffer();
                 gl.bindBuffer(gl.ARRAY_BUFFER, obj.vbo);
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.vertices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
-
-                obj.ebo = gl.createBuffer();
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.indices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(shaderProgram3.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram3.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram3.textureCoordAttribute);
             }
 
             function handleKeyDown(event) {
@@ -636,8 +655,29 @@
                     if(sun.angle > 360){
                         sun.angle = sun.angle - 360;
                     }
+
+                    space.angle += (earth.speed / 360 * deltaFrame) / 1000.0;
+                    if(space.angle > 360){
+                        space.angle = space.angle - 360;
+                    }
                 }
                 lastFrame = currentFrame;
+            }
+
+            function drawSphere(object, neverShowAxis = false){
+                pushMatrix('model');
+                    gl.bindTexture(gl.TEXTURE_2D, object.texture);
+                    gl.bindBuffer(gl.ARRAY_BUFFER, object.vbo);
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.ebo);
+                    gl.vertexAttribPointer(shaderProgram3.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    gl.vertexAttribPointer(shaderProgram3.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                    gl.vertexAttribPointer(shaderProgram3.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
+                    setMatrixUniforms('shaderProgram3');
+                    gl.drawElements(gl.TRIANGLES, object.indices.length, gl.UNSIGNED_SHORT, 0);
+                    if(!axisOff && !neverShowAxis){
+                        drawAxis(object.radius);
+                    }
+                popMatrix('model');
             }
 
             function drawCube(){
@@ -653,68 +693,28 @@
             }
 
             function drawAxis(radius){
+                isShowTexture = false;
                 let cubesize = radius * 0.025;
                 let offset = radius * 0.25;
                 pushMatrix('model');
-                    color = vec4.set(vec4.create(), 1.0, 0.0, 0.0, 1.0);
+                    color = vec3.set(vec3.create(), 1.0, 0.0, 0.0);
                     mat4.translate(topMatrix('model'), topMatrix('model'), [radius / 2 + offset, 0, 0]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [radius / 2 + offset, cubesize, cubesize]);
                     drawCube();
                 popMatrix('model');
                 pushMatrix('model');
-                    color = vec4.set(vec4.create(), 0.0, 1.0, 0.0, 1.0);
+                    color = vec3.set(vec3.create(), 0.0, 1.0, 0.0);
                     mat4.translate(topMatrix('model'), topMatrix('model'), [0, radius / 2 + offset, 0]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [cubesize, radius / 2 + offset, cubesize]);
                     drawCube();
                 popMatrix('model');
                 pushMatrix('model');
-                    color = vec4.set(vec4.create(), 0.0, 0.0, 1.0, 1.0);
+                    color = vec3.set(vec3.create(), 0.0, 0.0, 1.0);
                     mat4.translate(topMatrix('model'), topMatrix('model'), [0, 0, radius / 2 + offset]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [cubesize, cubesize, radius / 2 + offset]);
                     drawCube();
                 popMatrix('model');
-            }
-
-            function drawSun(){
-                pushMatrix('model');
-                    gl.bindBuffer(gl.ARRAY_BUFFER, sun.vbo);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, sun.ebo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
-                    gl.drawElements(gl.TRIANGLES, sun.indices.length, gl.UNSIGNED_SHORT, 0);
-                    if(!axisOff){
-                        drawAxis(sun.radius);
-                    }
-                popMatrix('model');
-            }
-
-            function drawEarth(){
-                pushMatrix('model');
-                    gl.bindBuffer(gl.ARRAY_BUFFER, earth.vbo);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, earth.ebo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
-                    gl.drawElements(gl.TRIANGLES, earth.indices.length, gl.UNSIGNED_SHORT, 0);
-                    if(!axisOff){
-                        drawAxis(earth.radius);
-                    }
-                popMatrix('model');
-            }
-
-            function drawMoon(){
-                pushMatrix('model');
-                    gl.bindBuffer(gl.ARRAY_BUFFER, moon.vbo);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, moon.ebo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, 3, gl.FLOAT, false, 6 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms();
-                    gl.drawElements(gl.TRIANGLES, moon.indices.length, gl.UNSIGNED_SHORT, 0);
-                    if(!axisOff){
-                        drawAxis(moon.radius);
-                    }
-                popMatrix('model');
+                isShowTexture = true;
             }
 
             function drawScene() {
@@ -722,7 +722,7 @@
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
                 mat4.identity(topMatrix('projection'));
-                mat4.perspective(topMatrix('projection'), 45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0);
+                mat4.perspective(topMatrix('projection'), 45, gl.viewportWidth / gl.viewportHeight, 0.1, 300.0);
                 
                 mat4.identity(topMatrix('view'));
                 let lookAtMatrix = mat4.create(topMatrix('view'));
@@ -732,35 +732,43 @@
                 
                 mat4.identity(topMatrix('model'));
 
-                gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, cube.texture);
-                drawCube();
+                
+                // drawCube();
 
-                // pushMatrix('model');
-                //     pushMatrix('model');
-                //         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0, 1, 0]);
-                //         drawSun();
-                //     popMatrix('model');
+                
+                
+                pushMatrix('model');
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(space.angle), [0, 1, 0]);
+                    drawSphere(space, true);
+                popMatrix('model');
 
-                //     pushMatrix('model');
-                //         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.globalAngle), [0, 1, 0]);
-                //         mat4.translate(topMatrix('model'), topMatrix('model'), [25, 0, 25]);
-                //         pushMatrix('model');
-                //             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
-                //             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
-                //             drawEarth();
-                //         popMatrix('model');
+                pushMatrix('model');
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0, 1, 0]);
+                        drawSphere(sun);
+                    popMatrix('model');
+
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.globalAngle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [25, 0, 25]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
+                            drawSphere(earth);
+                            // drawSphere(earth_cloud);
+                        popMatrix('model');
 
                         
-                //         pushMatrix('model');
-                //             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.angle), [0, 1, 0]);
-                //             mat4.translate(topMatrix('model'), topMatrix('model'), [5, 0, 0]);
-                //             // 不用加上月球自轉，因為前者的旋轉就是針對月球的 local coordinate 
-                //             // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(0), [0, 1, 0]);
-                //             drawMoon();
-                //         popMatrix('model');
-                //     popMatrix('model');
-                // popMatrix('model');
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.angle), [0, 1, 0]);
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [5, 0, 0]);
+                            // 不用加上月球自轉，因為前者的旋轉就是針對月球的 local coordinate 
+                            // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(0), [0, 1, 0]);
+                            drawSphere(moon);
+                        popMatrix('model');
+                    popMatrix('model');
+                popMatrix('model');
             }
 
             function webGLStart() {
@@ -771,6 +779,8 @@
 
                 gl.clearColor(0.1, 0.1, 0.1, 1.0);
                 gl.enable(gl.DEPTH_TEST);
+                gl.enable(gl.BLEND);
+                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
                 document.onkeydown = handleKeyDown;
                 document.onkeyup = handleKeyUp;
@@ -786,6 +796,13 @@
                 updateCameraStatus();
 
                 cube.texture = loadTexture("/WebGL_Class/images/TextureCube/sand.jpg");
+                // sphere.texture = loadTexture("/WebGL_Class/images/SolarSystem/earth_daytime.jpg");
+                space.texture = loadTexture("/WebGL_Class/images/SolarSystem/stars_milky_way.jpg");
+                sun.texture = loadTexture("/WebGL_Class/images/SolarSystem/sun.jpg");
+                earth.texture = loadTexture("/WebGL_Class/images/SolarSystem/earth_daytime.jpg");
+                earth_cloud.texture = loadTexture("/WebGL_Class/images/SolarSystem/earth_clouds.png");
+                moon.texture = loadTexture("/WebGL_Class/images/SolarSystem/moon.jpg");
+                gl.activeTexture(gl.TEXTURE0);
 
                 tick();
             }
