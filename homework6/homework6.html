@@ -132,20 +132,33 @@
 
             let gl;
 
+            let circle = {};
             let cube = {};
             let sphere = {};
+
             let space = {};
             let sun = {};
+            let mercury = {};
+            let venus = {};
+            let venus_atm = {};
             let earth = {};
             let earth_cloud = {};
+            let mars = {};
             let moon = {};
 
             space.angle = 0;
             sun.angle = 0;
+            mercury.angle = 0;
+            mercury.globalAngle = 0;
+            venus.angle = 0;
+            venus.globalAngle = 0;
             earth.angle = 0;
-            moon.angle = 0;
             earth.globalAngle = 0;
-            earth.speed = 200;
+            mars.angle = 0;
+            mars.globalAngle = 0;
+            moon.angle = 0;
+            earth.speed = 1;
+
 
             let virtual_time = {};
             virtual_time.years = 0;
@@ -160,9 +173,8 @@
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
             camera.up = vec3.copy(vec3.create(), camera.worldUp);
             camera.right = vec3.normalize(vec3.create(), vec3.cross(vec3.create(), camera.direction, camera.worldUp));
-            camera.movespeed = 0.01;
+            camera.movespeed = 0.02;
             camera.sensitivity = 0.05;
-            camera.roll = 0;
             camera.pitch = 0;
             camera.yaw = 0;
 
@@ -270,6 +282,7 @@
                 shaderProgram3.enableTexture = gl.getUniformLocation(shaderProgram3, 'enableTexture');
             }
 
+            // Loading textures
             function loadTexture(filepath){
                 let texture = gl.createTexture();
                 texture.image = new Image();
@@ -407,8 +420,12 @@
                 genSphereBuffer(sphere, 1, 30, 30);
                 genSphereBuffer(space, 200, 30, 30);
                 genSphereBuffer(sun, 8, 30, 30);
-                genSphereBuffer(earth, 0.9, 30, 30);
+                genSphereBuffer(mercury, 0.3829, 30, 30);
+                genSphereBuffer(venus, 0.9399, 30, 30);
+                genSphereBuffer(venus_atm, 0.9499, 30, 30);
+                genSphereBuffer(earth, 0.99, 30, 30);
                 genSphereBuffer(earth_cloud, 1, 30, 30);
+                genSphereBuffer(mars, 0.532, 30, 30);
                 genSphereBuffer(moon, 0.27, 30, 30);
 
                 initMatrix();
@@ -522,6 +539,9 @@
                     // v
                     if(earth.speed < 20000){
                         earth.speed += 10 * deltaFrame;
+                        if(earth.speed > 20000){
+                            earth.speed = 20000;
+                        }
                     }else{
                         earth.speed = 20000;
                         console.error("轉速只能介於0到20000之間。");
@@ -531,32 +551,14 @@
                     // c
                     if(earth.speed > 0){
                         earth.speed -= 10 * deltaFrame;
+                        if(earth.speed < 0){
+                            earth.speed = 0;
+                        }
                     }else{
                         earth.speed = 0;
                         console.error("轉速只能介於0到20000之間。");
                     }
                 }
-
-                if(currentPressedKeys[84]){
-                    // t
-                    if(camera.roll < 180){
-                        camera.roll += 0.1 * deltaFrame;
-                    }else{
-                        camera.roll = 180;
-                    }
-                    updateCameraParameter();
-                }
-
-                if(currentPressedKeys[89]){
-                    // y
-                    if(camera.roll > -180){
-                        camera.roll -= 0.1 * deltaFrame;
-                    }else{
-                        camera.roll = -180;
-                    }
-                    updateCameraParameter();
-                }
-
                 updateCameraStatus();
             }
 
@@ -595,11 +597,6 @@
                 
                 let direction = vec4.set(vec4.create(), 0, 0, -1, 1);
                 vec4.transformMat4(direction, direction, rotatematrix);
-
-                camera.worldUp = vec4.set(vec4.create(), 0, 1, 0, 1);
-                let rotatez = mat4.create();
-                mat4.rotate(rotatez, rotatez, deg2Rad(camera.roll), [0, 0, 1]);
-                vec4.transformMat4(camera.worldUp, camera.worldUp, rotatez);
                 
                 camera.direction = vec3.normalize(vec3.create(), vec3.set(vec3.create(), direction[0], direction[1], direction[2]));
                 camera.right = vec3.normalize(vec3.create(), vec3.cross(vec3.create(), camera.direction, camera.worldUp));
@@ -640,7 +637,7 @@
                         virtual_time.days -= 30;
                     }
 
-                    earth.globalAngle += (earth.speed/365 * deltaFrame) / 1000.0;
+                    earth.globalAngle += (earth.speed / 365 * deltaFrame) / 1000.0;
                     if(earth.globalAngle > 360){
                         earth.globalAngle = earth.globalAngle - 360;
                     }
@@ -654,6 +651,33 @@
                     sun.angle += (earth.speed / 27 * deltaFrame) / 1000.0;
                     if(sun.angle > 360){
                         sun.angle = sun.angle - 360;
+                    }
+
+                    mercury.angle += (earth.speed / 58.82 * deltaFrame) / 1000.0;
+                    if(mercury.angle > 360){
+                        mercury.angle = mercury.angle - 360;
+                    }
+                    mercury.globalAngle += (earth.speed / 87.97 * deltaFrame) / 1000.0;
+                    if(mercury.globalAngle > 360){
+                        mercury.globalAngle = mercury.globalAngle - 360;
+                    }
+
+                    venus.angle += (earth.speed / 243.73 * deltaFrame) / 1000.0;
+                    if(venus.angle > 360){
+                        venus.angle = venus.angle - 360;
+                    }
+                    venus.globalAngle += (earth.speed / 224.7 * deltaFrame) / 1000.0;
+                    if(venus.globalAngle > 360){
+                        venus.globalAngle = venus.globalAngle - 360;
+                    }
+
+                    mars.angle += (earth.speed / 1.03 * deltaFrame) / 1000.0;
+                    if(mars.angle > 360){
+                        mars.angle = mars.angle - 360;
+                    }
+                    mars.globalAngle += (earth.speed / 686.93 * deltaFrame) / 1000.0;
+                    if(mars.globalAngle > 360){
+                        mars.globalAngle = mars.globalAngle - 360;
                     }
 
                     space.angle += (earth.speed / 360 * deltaFrame) / 1000.0;
@@ -745,10 +769,36 @@
 
                 pushMatrix('model');
                     pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(7.25), [-1, 0, 0]);
                         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0, 1, 0]);
                         drawSphere(sun);
                     popMatrix('model');
 
+                    // 水星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.globalAngle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [8, 0, 8]);
+                        pushMatrix('model');
+                            // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.angle), [0, 1, 0]);
+                            drawSphere(mercury);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 金星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.globalAngle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [15, 0, 15]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(177.36), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.angle), [0, 1, 0]);
+                            drawSphere(venus);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.angle / 2), [0, 1, 0]);
+                            drawSphere(venus_atm, true);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 地球
                     pushMatrix('model');
                         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.globalAngle), [0, 1, 0]);
                         mat4.translate(topMatrix('model'), topMatrix('model'), [25, 0, 25]);
@@ -756,17 +806,30 @@
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
                             drawSphere(earth);
-                            // drawSphere(earth_cloud);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle / 2), [0, 1, 0]);
+                            drawSphere(earth_cloud, true);
                         popMatrix('model');
 
-                        
+                        // 月亮
                         pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(6.68), [-1, 0, 0]);
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.angle), [0, 1, 0]);
                             mat4.translate(topMatrix('model'), topMatrix('model'), [5, 0, 0]);
                             // 不用加上月球自轉，因為前者的旋轉就是針對月球的 local coordinate 
                             // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(0), [0, 1, 0]);
                             drawSphere(moon);
                         popMatrix('model');
+                    popMatrix('model');
+                popMatrix('model');
+
+                // 火星
+                pushMatrix('model');
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.globalAngle), [0, 1, 0]);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [35, 0, 35]);
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(25.19), [-1, 0, 0]);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.angle), [0, 1, 0]);
+                        drawSphere(mars);
                     popMatrix('model');
                 popMatrix('model');
             }
@@ -795,13 +858,17 @@
                 document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
                 updateCameraStatus();
 
-                cube.texture = loadTexture("/WebGL_Class/images/TextureCube/sand.jpg");
-                // sphere.texture = loadTexture("/WebGL_Class/images/SolarSystem/earth_daytime.jpg");
-                space.texture = loadTexture("/WebGL_Class/images/SolarSystem/stars_milky_way.jpg");
-                sun.texture = loadTexture("/WebGL_Class/images/SolarSystem/sun.jpg");
-                earth.texture = loadTexture("/WebGL_Class/images/SolarSystem/earth_daytime.jpg");
-                earth_cloud.texture = loadTexture("/WebGL_Class/images/SolarSystem/earth_clouds.png");
-                moon.texture = loadTexture("/WebGL_Class/images/SolarSystem/moon.jpg");
+                cube.texture = loadTexture("/WebGL/images/TextureCube/sand.jpg");
+                // sphere.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
+                space.texture = loadTexture("/WebGL/images/SolarSystem/stars_milky_way.jpg");
+                sun.texture = loadTexture("/WebGL/images/SolarSystem/sun.jpg");
+                mercury.texture = loadTexture("/WebGL/images/SolarSystem/mercury.jpg");
+                venus.texture = loadTexture("/WebGL/images/SolarSystem/venus.jpg");
+                venus_atm.texture = loadTexture("/WebGL/images/SolarSystem/venus_atmosphere.jpg");
+                earth.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
+                earth_cloud.texture = loadTexture("/WebGL/images/SolarSystem/earth_clouds.png");
+                moon.texture = loadTexture("/WebGL/images/SolarSystem/moon.jpg");
+                mars.texture = loadTexture("/WebGL/images/SolarSystem/mars.jpg");
                 gl.activeTexture(gl.TEXTURE0);
 
                 tick();
