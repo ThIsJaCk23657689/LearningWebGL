@@ -27,63 +27,19 @@
                         F 開啟 / 關閉 XYZ 軸 <br/>
                         W / S / A / D 可以移動攝影機 <br/>
                         點擊畫面即可使用滑鼠移動視角 <br/>
-                        T / Y 可以 測滾 相機 <br/>
                         C / V 可以 降低 / 提高 轉速 <br/>
                     </p>
                 </div>
                 <div class="col-md-12 text-center">
                     Year: <span id="years">0</span>, Months <span id="months">0</span>, Days <span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
-                    camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree , camera.roll(Z): <span id="roll">0</span> degree <br/>
+                    camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree<br/>
                     camera.position: (<span id="positionX">0</span>, <span id="positionY">0</span>, <span id="positionZ">0</span>) <br/>
                     camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>), Facing: <span id="facing">North</span> <br/>
-                    camera.right: (<span id="rightX">0</span>, <span id="righty">0</span>, <span id="rightZ">0</span>) <br/>
-                    camera.up: (<span id="upX">0</span>, <span id="upY">0</span>, <span id="upZ">0</span>) <br/>
                 </div>
             </div>
         </div>
     </div>
-
     <script id="vertex" type="x-shader/x-vertex">
-        attribute vec3 aVertexPosition;
-        attribute vec3 aVertexColor;
-
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-
-        varying vec4 aColor;
-        
-        void main(void) {
-            gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
-            aColor = vec4(aVertexColor, 1.0);
-        }
-    </script>
-    <script id="fragment" type="x-shader/x-fragment">
-        precision mediump float;
-
-        varying vec4 aColor;
-
-    	void main(void) {
-            gl_FragColor = aColor;
-        }
-    </script>
-    <script id="vertex-color" type="x-shader/x-vertex">
-        attribute vec3 aVertexPosition;
-
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-        uniform vec4 color;
-
-        varying vec4 aColor;
-        
-        void main(void) {
-            gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
-            aColor = color;
-        }
-    </script>
-
-    <script id="vertex-texture" type="x-shader/x-vertex">
         attribute vec3 aVertexPosition;
         attribute vec3 aNormal;
         attribute vec2 aTextureCoord;
@@ -101,7 +57,7 @@
             textureCoord = aTextureCoord;
         }
     </script>
-    <script id="fragment-texture" type="x-shader/x-fragment">
+    <script id="fragment" type="x-shader/x-fragment">
         precision mediump float;
 
         varying vec3 normal;
@@ -132,33 +88,21 @@
 
             let gl;
 
-            let circle = {};
             let cube = {};
             let sphere = {};
 
-            let space = {};
             let sun = {};
-            let mercury = {};
-            let venus = {};
-            let venus_atm = {};
             let earth = {};
-            let earth_cloud = {};
-            let mars = {};
             let moon = {};
 
-            space.angle = 0;
+            // 天體資料
             sun.angle = 0;
-            mercury.angle = 0;
-            mercury.globalAngle = 0;
-            venus.angle = 0;
-            venus.globalAngle = 0;
+            sun.obiquity = 0;
             earth.angle = 0;
             earth.globalAngle = 0;
-            mars.angle = 0;
-            mars.globalAngle = 0;
             moon.angle = 0;
-            earth.speed = 1;
 
+            earth.speed = 200;
 
             let virtual_time = {};
             virtual_time.years = 0;
@@ -166,8 +110,7 @@
             virtual_time.days = 0;
 
             let camera = {};
-            camera.position = vec3.set(vec3.create(), 25, 0, 28);
-            // camera.position = vec3.set(vec3.create(), 9, 0, 57);
+            camera.position = vec3.set(vec3.create(), 9, 0, 57);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
@@ -253,33 +196,17 @@
             // inital shaders
             function initShaders() {
                 shaderProgram = createProgram('vertex', 'fragment');
-                shaderProgram2 = createProgram('vertex-color', 'fragment');
-                shaderProgram3 = createProgram('vertex-texture', 'fragment-texture');
 
                 gl.useProgram(shaderProgram);
                 shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-                shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, 'aVertexColor');
+                shaderProgram.normalAttribute = gl.getAttribLocation(shaderProgram, 'aNormal');
+                shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
                 shaderProgram.model = gl.getUniformLocation(shaderProgram, 'model');
                 shaderProgram.view = gl.getUniformLocation(shaderProgram, 'view');
                 shaderProgram.projection = gl.getUniformLocation(shaderProgram, 'projection');
-
-                gl.useProgram(shaderProgram2);
-                shaderProgram2.vertexPositionAttribute = gl.getAttribLocation(shaderProgram2, 'aVertexPosition');
-                shaderProgram2.model = gl.getUniformLocation(shaderProgram2, 'model');
-                shaderProgram2.view = gl.getUniformLocation(shaderProgram2, 'view');
-                shaderProgram2.projection = gl.getUniformLocation(shaderProgram2, 'projection');
-                shaderProgram2.color = gl.getUniformLocation(shaderProgram2, 'color');
-
-                gl.useProgram(shaderProgram3);
-                shaderProgram3.vertexPositionAttribute = gl.getAttribLocation(shaderProgram3, 'aVertexPosition');
-                shaderProgram3.normalAttribute = gl.getAttribLocation(shaderProgram3, 'aNormal');
-                shaderProgram3.textureCoordAttribute = gl.getAttribLocation(shaderProgram3, 'aTextureCoord');
-                shaderProgram3.model = gl.getUniformLocation(shaderProgram3, 'model');
-                shaderProgram3.view = gl.getUniformLocation(shaderProgram3, 'view');
-                shaderProgram3.projection = gl.getUniformLocation(shaderProgram3, 'projection');
-                shaderProgram3.color = gl.getUniformLocation(shaderProgram3, 'color');
-                shaderProgram3.texture1 = gl.getUniformLocation(shaderProgram3, 'texture1');
-                shaderProgram3.enableTexture = gl.getUniformLocation(shaderProgram3, 'enableTexture');
+                shaderProgram.color = gl.getUniformLocation(shaderProgram, 'color');
+                shaderProgram.texture1 = gl.getUniformLocation(shaderProgram, 'texture1');
+                shaderProgram.enableTexture = gl.getUniformLocation(shaderProgram, 'enableTexture');
             }
 
             // Loading textures
@@ -336,20 +263,9 @@
                     gl.uniformMatrix4fv(shaderProgram.model, false, topMatrix('model'));
                     gl.uniformMatrix4fv(shaderProgram.view, false, topMatrix('view'));
                     gl.uniformMatrix4fv(shaderProgram.projection, false, topMatrix('projection'));
-                } else if(type == 'shaderProgram2') {
-                    gl.useProgram(shaderProgram2);
-                    gl.uniformMatrix4fv(shaderProgram2.model, false, topMatrix('model'));
-                    gl.uniformMatrix4fv(shaderProgram2.view, false, topMatrix('view'));
-                    gl.uniformMatrix4fv(shaderProgram2.projection, false, topMatrix('projection'));
-                    gl.uniform4fv(shaderProgram2.color, color);
-                } else if(type == 'shaderProgram3'){
-                    gl.useProgram(shaderProgram3);
-                    gl.uniformMatrix4fv(shaderProgram3.model, false, topMatrix('model'));
-                    gl.uniformMatrix4fv(shaderProgram3.view, false, topMatrix('view'));
-                    gl.uniformMatrix4fv(shaderProgram3.projection, false, topMatrix('projection'));
-                    gl.uniform3fv(shaderProgram3.color, color);
-                    gl.uniform1i(shaderProgram3.texture1, 0);
-                    gl.uniform1i(shaderProgram3.enableTexture, isShowTexture);
+                    gl.uniform3fv(shaderProgram.color, color);
+                    gl.uniform1i(shaderProgram.texture1, 0);
+                    gl.uniform1i(shaderProgram.enableTexture, isShowTexture);
                 } else {
                     console.error('ERROR：The shader program type is unknow.');
                 }
@@ -413,19 +329,13 @@
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube.vertices), gl.STATIC_DRAW);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cube.indices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram3.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.normalAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.textureCoordAttribute);
+                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
                 
-                genSphereBuffer(sphere, 1, 30, 30);
-                genSphereBuffer(space, 200, 30, 30);
+                // genSphereBuffer(sphere, 1, 30, 30);
                 genSphereBuffer(sun, 8, 30, 30);
-                genSphereBuffer(mercury, 0.3829, 30, 30);
-                genSphereBuffer(venus, 0.9399, 30, 30);
-                genSphereBuffer(venus_atm, 0.9499, 30, 30);
-                genSphereBuffer(earth, 0.99, 30, 30);
-                genSphereBuffer(earth_cloud, 1, 30, 30);
-                genSphereBuffer(mars, 0.532, 30, 30);
+                genSphereBuffer(earth, 1, 30, 30);
                 genSphereBuffer(moon, 0.27, 30, 30);
 
                 initMatrix();
@@ -493,9 +403,9 @@
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.vertices), gl.STATIC_DRAW);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.indices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram3.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.normalAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.textureCoordAttribute);
+                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
             }
 
             function handleKeyDown(event) {
@@ -604,9 +514,9 @@
 
                 updateCameraStatus();
             }
-
+            
             function handleMouseDown(event){
-                console.log(camera.roll);
+
             }
 
             function tick() {
@@ -622,67 +532,30 @@
                     deltaFrame = currentFrame - lastFrame;
 
                     earth.angle += (earth.speed * deltaFrame) / 1000.0;
+                    // 地球自轉一圈代表過了一天(恆星日)
                     if(earth.angle > 360){
                         earth.angle = earth.angle - 360;
                         virtual_time.days += 1;
                     }
 
-                    moon.angle += earth.speed / 30 * deltaFrame / 1000.0;
+                    // 月亮自轉 = 公轉，公轉週期約為27天
+                    moon.angle += earth.speed / 27.30200 * deltaFrame / 1000.0;
                     if(moon.angle > 360){
                         moon.angle = moon.angle - 360;
                     }
 
-                    if(virtual_time.days > 30){
-                        virtual_time.months += 1;
-                        virtual_time.days -= 30;
-                    }
-
-                    earth.globalAngle += (earth.speed / 365 * deltaFrame) / 1000.0;
+                    // 地球公轉週期約為365.25天，公轉一圈為一年
+                    earth.globalAngle += (earth.speed / 365.256363004 * deltaFrame) / 1000.0;
                     if(earth.globalAngle > 360){
                         earth.globalAngle = earth.globalAngle - 360;
-                    }
-
-                    if(virtual_time.months > 12){
-                        virtual_time.days = 0;
-                        virtual_time.months -= 12;
                         virtual_time.years += 1;
+                        virtual_time.days -= 365;
                     }
 
-                    sun.angle += (earth.speed / 27 * deltaFrame) / 1000.0;
+                    // 太陽自轉會隨著緯度不同，速度也不同。卡靈頓自轉週期為：27.2753天，相當於太陽緯度26度時的自轉週期。
+                    sun.angle += (earth.speed / 27.2753 * deltaFrame) / 1000.0;
                     if(sun.angle > 360){
                         sun.angle = sun.angle - 360;
-                    }
-
-                    mercury.angle += (earth.speed / 58.82 * deltaFrame) / 1000.0;
-                    if(mercury.angle > 360){
-                        mercury.angle = mercury.angle - 360;
-                    }
-                    mercury.globalAngle += (earth.speed / 87.97 * deltaFrame) / 1000.0;
-                    if(mercury.globalAngle > 360){
-                        mercury.globalAngle = mercury.globalAngle - 360;
-                    }
-
-                    venus.angle += (earth.speed / 243.73 * deltaFrame) / 1000.0;
-                    if(venus.angle > 360){
-                        venus.angle = venus.angle - 360;
-                    }
-                    venus.globalAngle += (earth.speed / 224.7 * deltaFrame) / 1000.0;
-                    if(venus.globalAngle > 360){
-                        venus.globalAngle = venus.globalAngle - 360;
-                    }
-
-                    mars.angle += (earth.speed / 1.03 * deltaFrame) / 1000.0;
-                    if(mars.angle > 360){
-                        mars.angle = mars.angle - 360;
-                    }
-                    mars.globalAngle += (earth.speed / 686.93 * deltaFrame) / 1000.0;
-                    if(mars.globalAngle > 360){
-                        mars.globalAngle = mars.globalAngle - 360;
-                    }
-
-                    space.angle += (earth.speed / 360 * deltaFrame) / 1000.0;
-                    if(space.angle > 360){
-                        space.angle = space.angle - 360;
                     }
                 }
                 lastFrame = currentFrame;
@@ -693,10 +566,10 @@
                     gl.bindTexture(gl.TEXTURE_2D, object.texture);
                     gl.bindBuffer(gl.ARRAY_BUFFER, object.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.ebo);
-                    gl.vertexAttribPointer(shaderProgram3.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram3.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    gl.vertexAttribPointer(shaderProgram3.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms('shaderProgram3');
+                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
+                    setMatrixUniforms('shaderProgram');
                     gl.drawElements(gl.TRIANGLES, object.indices.length, gl.UNSIGNED_SHORT, 0);
                     if(!axisOff && !neverShowAxis){
                         drawAxis(object.radius);
@@ -708,10 +581,10 @@
                 pushMatrix('model');
                     gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
-                    gl.vertexAttribPointer(shaderProgram3.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram3.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    gl.vertexAttribPointer(shaderProgram3.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms('shaderProgram3');
+                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
+                    setMatrixUniforms('shaderProgram');
                     gl.drawElements(gl.TRIANGLES, cube.indices.length, gl.UNSIGNED_SHORT, 0);
                 popMatrix('model');
             }
@@ -756,46 +629,14 @@
                 
                 mat4.identity(topMatrix('model'));
 
-                gl.bindTexture(gl.TEXTURE_2D, cube.texture);
-                
+                // gl.bindTexture(gl.TEXTURE_2D, cube.texture);
                 // drawCube();
-
-                
-                
-                pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(space.angle), [0, 1, 0]);
-                    drawSphere(space, true);
-                popMatrix('model');
 
                 pushMatrix('model');
                     pushMatrix('model');
                         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(7.25), [-1, 0, 0]);
                         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0, 1, 0]);
                         drawSphere(sun);
-                    popMatrix('model');
-
-                    // 水星
-                    pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.globalAngle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [8, 0, 8]);
-                        pushMatrix('model');
-                            // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.angle), [0, 1, 0]);
-                            drawSphere(mercury);
-                        popMatrix('model');
-                    popMatrix('model');
-
-                    // 金星
-                    pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.globalAngle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [15, 0, 15]);
-                        pushMatrix('model');
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(177.36), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.angle), [0, 1, 0]);
-                            drawSphere(venus);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.angle / 2), [0, 1, 0]);
-                            drawSphere(venus_atm, true);
-                        popMatrix('model');
                     popMatrix('model');
 
                     // 地球
@@ -806,8 +647,6 @@
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
                             drawSphere(earth);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle / 2), [0, 1, 0]);
-                            drawSphere(earth_cloud, true);
                         popMatrix('model');
 
                         // 月亮
@@ -819,17 +658,6 @@
                             // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(0), [0, 1, 0]);
                             drawSphere(moon);
                         popMatrix('model');
-                    popMatrix('model');
-                popMatrix('model');
-
-                // 火星
-                pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.globalAngle), [0, 1, 0]);
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [35, 0, 35]);
-                    pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(25.19), [-1, 0, 0]);
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.angle), [0, 1, 0]);
-                        drawSphere(mars);
                     popMatrix('model');
                 popMatrix('model');
             }
@@ -859,16 +687,9 @@
                 updateCameraStatus();
 
                 cube.texture = loadTexture("/WebGL/images/TextureCube/sand.jpg");
-                // sphere.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
-                space.texture = loadTexture("/WebGL/images/SolarSystem/stars_milky_way.jpg");
                 sun.texture = loadTexture("/WebGL/images/SolarSystem/sun.jpg");
-                mercury.texture = loadTexture("/WebGL/images/SolarSystem/mercury.jpg");
-                venus.texture = loadTexture("/WebGL/images/SolarSystem/venus.jpg");
-                venus_atm.texture = loadTexture("/WebGL/images/SolarSystem/venus_atmosphere.jpg");
                 earth.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
-                earth_cloud.texture = loadTexture("/WebGL/images/SolarSystem/earth_clouds.png");
                 moon.texture = loadTexture("/WebGL/images/SolarSystem/moon.jpg");
-                mars.texture = loadTexture("/WebGL/images/SolarSystem/mars.jpg");
                 gl.activeTexture(gl.TEXTURE0);
 
                 tick();
@@ -894,12 +715,6 @@
                 $('#directionX').text(Math.round(camera.direction[0] * 1000) / 1000);
                 $('#directionY').text(Math.round(camera.direction[1] * 1000) / 1000);
                 $('#directionZ').text(Math.round(camera.direction[2] * 1000) / 1000);
-                $('#rightX').text(Math.round(camera.right[0] * 1000) / 1000);
-                $('#rightY').text(Math.round(camera.right[1] * 1000) / 1000);
-                $('#rightZ').text(Math.round(camera.right[2] * 1000) / 1000);
-                $('#upX').text(Math.round(camera.up[0] * 1000) / 1000);
-                $('#upY').text(Math.round(camera.up[1] * 1000) / 1000);
-                $('#upZ').text(Math.round(camera.up[2] * 1000) / 1000);
                 $('#facing').text('');
                 if(Math.round(camera.direction[2]) == 1) {
                     $('#facing').text('South');
@@ -919,7 +734,6 @@
                 $('#speed').text(earth.speed);
                 $('#yaw').text(Math.round(camera.yaw * 10) / 10);
                 $('#pitch').text(Math.round(camera.pitch * 10) / 10);
-                $('#roll').text(Math.round(camera.roll * 10) / 10);
             }
 
             webGLStart();
