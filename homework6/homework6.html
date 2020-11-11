@@ -31,7 +31,7 @@
                     </p>
                 </div>
                 <div class="col-md-12 text-center">
-                    地球公轉：<span id="years">0</span>, 月亮公轉：<span id="months">0</span>, 地球自轉：<span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
+                    Year: <span id="years">0</span>, Months <span id="months">0</span>, Days <span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
                     camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree<br/>
                     camera.position: (<span id="positionX">0</span>, <span id="positionY">0</span>, <span id="positionZ">0</span>) <br/>
                     camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>), Facing: <span id="facing">North</span> <br/>
@@ -538,18 +538,18 @@
                         virtual_time.days += 1;
                     }
 
-                    // 月亮自轉 = 公轉，公轉週期約為27.302天
-                    moon.angle += earth.speed / 27.302 * deltaFrame / 1000.0;
+                    // 月亮自轉 = 公轉，公轉週期約為27天
+                    moon.angle += earth.speed / 27.30200 * deltaFrame / 1000.0;
                     if(moon.angle > 360){
                         moon.angle = moon.angle - 360;
-                        virtual_time.months += 1;
                     }
 
-                    // 地球公轉週期約為365.256363004天，公轉一圈為一年
+                    // 地球公轉週期約為365.25天，公轉一圈為一年
                     earth.globalAngle += (earth.speed / 365.256363004 * deltaFrame) / 1000.0;
                     if(earth.globalAngle > 360){
                         earth.globalAngle = earth.globalAngle - 360;
                         virtual_time.years += 1;
+                        virtual_time.days -= 365;
                     }
 
                     // 太陽自轉會隨著緯度不同，速度也不同。卡靈頓自轉週期為：27.2753天，相當於太陽緯度26度時的自轉週期。
@@ -644,7 +644,7 @@
                         mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.globalAngle), [0, 1, 0]);
                         mat4.translate(topMatrix('model'), topMatrix('model'), [25, 0, 25]);
                         pushMatrix('model');
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.4), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
                             drawSphere(earth);
                         popMatrix('model');
@@ -686,7 +686,7 @@
                 document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
                 updateCameraStatus();
 
-                cube.texture = loadTexture("/WebGL/images/TextureCube/sand.jpg");
+                // cube.texture = loadTexture("/WebGL/images/TextureCube/sand.jpg");
                 sun.texture = loadTexture("/WebGL/images/SolarSystem/sun.jpg");
                 earth.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
                 moon.texture = loadTexture("/WebGL/images/SolarSystem/moon.jpg");

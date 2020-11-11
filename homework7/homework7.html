@@ -10,34 +10,79 @@
     <script src="../js/jquery-3.5.1.min.js" type="text/javascript"></script>
     <script src="../js/bootstrap.min.js" type="text/javascript"></script>
     <script src="../GLjs/gl-matrix-min.js" type="text/javascript"></script>
+    <style>
+        body{
+            overflow: hidden;
+        }
+
+        .Info-card{
+            position: absolute;
+            width: 40%;
+            height: 38%;
+            color: white;
+            background: rgba(0.2, 0.2, 0.2, 0.8);
+            border-radius: 30px;
+            letter-spacing: 1.5px;
+            line-height: 1.4rem;
+            font-family: "微軟正黑體";
+            bottom: 0;
+            right: 0;
+            font-size: 0.8rem;
+            z-index: 900;
+            transition: all 400ms ease-out;
+        }
+
+        .Info-card.hide{
+            bottom: -34%;
+        }
+
+        .switch-box{
+            width: 100%;
+            height: 40px;
+            background-color: rgb(126 65 255);
+            border-radius: 15px;
+            z-index: 1000;
+            padding: 9px 15px;
+            text-align: right;
+            font-size: 1.2rem;
+            padding-right: 25px;
+            margin-bottom: 15px;
+            cursor: pointer;
+            transition: all 200ms ease-in-out;
+        }
+
+        .switch-box:hover{
+            background-color: rgb(123 179 243);
+            font-weight: 600;
+        }
+    </style>
 </head>
 <body>
     <div class="d-flex vh-100 justify-content-center align-items-center">
-        <div class="container">
-            <div class="row">
-                <div class="col-md-12 text-center">
-                    <h2>10957037 張竣傑</h2>
-                    <small>Homework 7</small>
-                </div>
-                <div class="col-md-12 text-center">
-                    <canvas id="testing" style="border: none;" width="800" height="600"></canvas>
-                </div>
+        <canvas id="testing" style="border: none;"></canvas>
+        <div class="Info-card">
+            <div class="switch-box">
+                Off
+            </div>
+            <div class="row">                
                 <div class="col-md-12 text-center">
                     <p>
                         F 開啟 / 關閉 XYZ 軸 <br/>
                         W / S / A / D 可以移動攝影機 <br/>
                         點擊畫面即可使用滑鼠移動視角 <br/>
-                        T / Y 可以 測滾 相機 <br/>
                         C / V 可以 降低 / 提高 轉速 <br/>
                     </p>
                 </div>
-                <div class="col-md-12 text-center">
-                    Year: <span id="years">0</span>, Months <span id="months">0</span>, Days <span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
-                    camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree , camera.roll(Z): <span id="roll">0</span> degree <br/>
+                <div class="col-md-12 mb-2 text-center">
+                    地球公轉: <span id="years">0</span>, 月亮公轉: <span id="months">0</span>, 地球自轉: <span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
                     camera.position: (<span id="positionX">0</span>, <span id="positionY">0</span>, <span id="positionZ">0</span>) <br/>
+                    camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree<br/>
                     camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>), Facing: <span id="facing">North</span> <br/>
                     camera.right: (<span id="rightX">0</span>, <span id="righty">0</span>, <span id="rightZ">0</span>) <br/>
                     camera.up: (<span id="upX">0</span>, <span id="upY">0</span>, <span id="upZ">0</span>) <br/>
+                </div>
+                <div class="col-md-12 text-center">
+                    <small>Made by 10957037 張竣傑</small>
                 </div>
             </div>
         </div>
@@ -45,79 +90,97 @@
 
     <script id="vertex" type="x-shader/x-vertex">
         attribute vec3 aVertexPosition;
-        attribute vec3 aVertexColor;
-
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-
-        varying vec4 aColor;
-        
-        void main(void) {
-            gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
-            aColor = vec4(aVertexColor, 1.0);
-        }
-    </script>
-    <script id="fragment" type="x-shader/x-fragment">
-        precision mediump float;
-
-        varying vec4 aColor;
-
-    	void main(void) {
-            gl_FragColor = aColor;
-        }
-    </script>
-    <script id="vertex-color" type="x-shader/x-vertex">
-        attribute vec3 aVertexPosition;
-
-        uniform mat4 model;
-        uniform mat4 view;
-        uniform mat4 projection;
-        uniform vec4 color;
-
-        varying vec4 aColor;
-        
-        void main(void) {
-            gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
-            aColor = color;
-        }
-    </script>
-
-    <script id="vertex-texture" type="x-shader/x-vertex">
-        attribute vec3 aVertexPosition;
         attribute vec3 aNormal;
         attribute vec2 aTextureCoord;
 
         uniform mat4 model;
         uniform mat4 view;
         uniform mat4 projection;
+        uniform mat3 normalModel;
 
-        varying vec3 normal;
+        varying vec3 FragPos;
+        varying vec3 Normal;
         varying vec2 textureCoord;
         
         void main(void) {
-            gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
-            normal = aNormal;
+            FragPos = vec3(model * vec4(aVertexPosition, 1.0));
+            Normal = normalModel * aNormal;
             textureCoord = aTextureCoord;
+            gl_Position = projection * view * vec4(FragPos, 1.0);
         }
     </script>
-    <script id="fragment-texture" type="x-shader/x-fragment">
+    <script id="fragment" type="x-shader/x-fragment">
         precision mediump float;
 
-        varying vec3 normal;
+        struct Material {
+            sampler2D diffuse;
+            sampler2D specular;
+            float shininess;
+        };
+
+        struct Light {
+            vec3 position;
+
+            vec3 ambient;
+            vec3 diffuse;
+            vec3 specular;
+
+            float constant;
+            float linear;
+            float quadratic;
+        };
+
+        varying vec3 FragPos;
+        varying vec3 Normal;
         varying vec2 textureCoord;
 
-        uniform sampler2D texture1;
+        uniform bool isRenderingSun;
         uniform bool enableTexture;
         uniform vec3 color;
+        uniform vec3 viewPos;
+        uniform Material material;
+        uniform Light light;
 
     	void main(void) {
-            if (enableTexture) {
-                vec4 texColor = texture2D(texture1, textureCoord);
-                if(texColor.a < 0.1) {
+            if(isRenderingSun && enableTexture){
+
+                vec3 texture_map = texture2D(material.diffuse, textureCoord).rgb;
+                vec3 emission = texture2D(material.diffuse, textureCoord).rgb;
+                emission *= 0.5;
+                vec3 result = texture_map + emission;
+
+                gl_FragColor = vec4(result, 1.0);
+            } else if (enableTexture) {
+                vec4 temp = texture2D(material.diffuse, textureCoord);
+                if(temp.a < 0.1) {
                     discard;
                 }
-                gl_FragColor = texColor;
+
+                // 環境光
+                vec3 ambient = light.ambient * texture2D(material.diffuse, textureCoord).rgb;
+
+                // 漫射
+                vec3 norm = normalize(Normal);
+                vec3 lightDir = normalize(light.position - FragPos);
+                float diff = max(dot(norm, lightDir), 0.0);
+                vec3 diffuse = light.diffuse * diff * texture2D(material.diffuse, textureCoord).rgb;
+
+                // 高光
+                vec3 viewDir = normalize(viewPos - FragPos);
+                vec3 reflectDir = reflect(-lightDir, norm);
+                float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
+                vec3 specular = light.specular * spec * texture2D(material.specular, textureCoord).rgb;
+
+                // 光衰弱
+                float distance = length(light.position - FragPos);
+                float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
+
+                ambient *= attenuation;
+                diffuse *= attenuation;
+                specular *= attenuation;
+
+                vec3 result = ambient + diffuse + specular;
+                gl_FragColor = vec4(result, temp.a);
             } else {
                 gl_FragColor = vec4(color, 1.0);
             }
@@ -127,6 +190,7 @@
     <script type="text/javascript">
         $(function() {
             window['mat4'] = glMatrix.mat4;
+            window['mat3'] = glMatrix.mat3;
             window['vec3'] = glMatrix.vec3;
             window['vec4'] = glMatrix.vec4;
 
@@ -136,29 +200,215 @@
             let cube = {};
             let sphere = {};
 
-            let space = {};
-            let sun = {};
-            let mercury = {};
-            let venus = {};
-            let venus_atm = {};
-            let earth = {};
-            let earth_cloud = {};
-            let mars = {};
-            let moon = {};
+            // 比例尺設定: 
 
-            space.angle = 0;
-            sun.angle = 0;
-            mercury.angle = 0;
-            mercury.globalAngle = 0;
-            venus.angle = 0;
-            venus.globalAngle = 0;
-            earth.angle = 0;
-            earth.globalAngle = 0;
-            mars.angle = 0;
-            mars.globalAngle = 0;
-            moon.angle = 0;
+            let space = {
+                "type": "universe",
+                "diameter": 10000,
+                "AU": NaN,
+                "obliquity": NaN,
+                "orbital_period": NaN,
+                "rotate_period": 5000,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let sun = {
+                "type": "star",
+                "diameter": 1392700,
+                "AU": NaN,
+                "position": vec3.set(vec3.create(), 0, 0, 0),
+                "obliquity": 7.25,
+                "orbital_period": NaN,
+                "rotate_period": 25.379995,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let mercury = {
+                "type": "planet",
+                "diameter": 4879,
+                "AU": 0.4 * 200 + 40,
+                "obliquity": 0,
+                "orbital_period": 87.9691,
+                "rotate_period": 58.6462,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let venus = {
+                "type": "planet",
+                "diameter": 12104,
+                "AU": 0.72 * 200 + 40,
+                "obliquity": 177.36,
+                "orbital_period": 224.701,
+                "rotate_period": 243.0187,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let earth = {
+                "type": "planet",
+                "diameter": 12742,
+                "AU": 1 * 200 + 40,
+                "obliquity": 23.4,
+                "orbital_period": 365.25636,
+                "rotate_period": 1,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let moon = {
+                "type": "satellite",
+                "diameter": 3474,
+                "AU": 3.84400 * 4,
+                "obliquity": 6.68,
+                "orbital_period": 27.32,
+                "rotate_period": 27.32,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let mars = {
+                "type": "planet",
+                "diameter": 6779,
+                "AU": 1.5 * 200 + 40,
+                "obliquity": 25.19,
+                "orbital_period": 1.881 * 365.25636,
+                "rotate_period": 1.02595675,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let jupiter = {
+                "type": "planet",
+                "diameter": 139820,
+                "AU": 5.2 * 200 + 40,
+                "obliquity": 3.13,
+                "orbital_period": 11.86 * 365.25636,
+                "rotate_period": 0.41007,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let saturn = {
+                "type": "planet",
+                "diameter": 116460,
+                "AU": 9.5 * 200 + 40,
+                "obliquity": 26.73,
+                "orbital_period": 29.46 * 365.25636,
+                "rotate_period": 0.426,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let uranus = {
+                "type": "planet",
+                "diameter": 50724,
+                "AU": 19.2 * 200 + 40,
+                "obliquity": 97.77,
+                "orbital_period": 84.01 * 365.25636,
+                "rotate_period": 0.71833,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let neptune = {
+                "type": "planet",
+                "diameter": 49244,
+                "AU": 30.1 * 200 + 40,
+                "obliquity": 28.32,
+                "orbital_period": 164.8 * 365.25636,
+                "rotate_period": 0.67125,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            let pluto = {
+                "type": "dwarf planet",
+                "diameter": 2377,
+                "AU": 39.5 * 200 + 40,
+                "obliquity": 122.53,
+                "orbital_period": 248.1 * 365.25636,
+                "rotate_period": 6.38718,
+                "orbital_angle": 0,
+                "rotate_angle": 0,
+                "count": {
+                    "orbit": 0,
+                    "rotate": 0,
+                },
+                "cloud": {
+                    "type": "cloud",
+                },
+            };
+            
             earth.speed = 1;
-
 
             let virtual_time = {};
             virtual_time.years = 0;
@@ -166,14 +416,14 @@
             virtual_time.days = 0;
 
             let camera = {};
-            camera.position = vec3.set(vec3.create(), 25, 0, 28);
+            camera.position = vec3.set(vec3.create(), 154, 20, 432);
             // camera.position = vec3.set(vec3.create(), 9, 0, 57);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
             camera.up = vec3.copy(vec3.create(), camera.worldUp);
             camera.right = vec3.normalize(vec3.create(), vec3.cross(vec3.create(), camera.direction, camera.worldUp));
-            camera.movespeed = 0.02;
+            camera.movespeed = 0.5;
             camera.sensitivity = 0.05;
             camera.pitch = 0;
             camera.yaw = 0;
@@ -189,10 +439,14 @@
 
             let currentPressedKeys = {};
 
+            let currentFrame = new Date().getTime();
             let lastFrame = 0;
             let deltaFrame = 0;
 
             let axisOff = false;
+
+            let isInfoPlaneOn = true;
+            let isRenderingSun = false;
 
             function initGL(canvas) {
                 try {
@@ -253,33 +507,36 @@
             // inital shaders
             function initShaders() {
                 shaderProgram = createProgram('vertex', 'fragment');
-                shaderProgram2 = createProgram('vertex-color', 'fragment');
-                shaderProgram3 = createProgram('vertex-texture', 'fragment-texture');
 
                 gl.useProgram(shaderProgram);
                 shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
-                shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, 'aVertexColor');
+                shaderProgram.normalAttribute = gl.getAttribLocation(shaderProgram, 'aNormal');
+                shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
                 shaderProgram.model = gl.getUniformLocation(shaderProgram, 'model');
                 shaderProgram.view = gl.getUniformLocation(shaderProgram, 'view');
                 shaderProgram.projection = gl.getUniformLocation(shaderProgram, 'projection');
+                shaderProgram.normalModel = gl.getUniformLocation(shaderProgram, 'normalModel');
+                shaderProgram.color = gl.getUniformLocation(shaderProgram, 'color');
+                shaderProgram.texture1 = gl.getUniformLocation(shaderProgram, 'texture1');
+                shaderProgram.enableTexture = gl.getUniformLocation(shaderProgram, 'enableTexture');
+                shaderProgram.lightPosition = gl.getUniformLocation(shaderProgram, 'lightPosition');
+                shaderProgram.viewPos = gl.getUniformLocation(shaderProgram, 'viewPos');
+                shaderProgram.isRenderingSun = gl.getUniformLocation(shaderProgram, 'isRenderingSun');
+                shaderProgram.time = gl.getUniformLocation(shaderProgram, 'time');
 
-                gl.useProgram(shaderProgram2);
-                shaderProgram2.vertexPositionAttribute = gl.getAttribLocation(shaderProgram2, 'aVertexPosition');
-                shaderProgram2.model = gl.getUniformLocation(shaderProgram2, 'model');
-                shaderProgram2.view = gl.getUniformLocation(shaderProgram2, 'view');
-                shaderProgram2.projection = gl.getUniformLocation(shaderProgram2, 'projection');
-                shaderProgram2.color = gl.getUniformLocation(shaderProgram2, 'color');
+                shaderProgram.material = {};
+                shaderProgram.material.diffuse = gl.getUniformLocation(shaderProgram, 'material.diffuse');
+                shaderProgram.material.specular = gl.getUniformLocation(shaderProgram, 'material.specular');
+                shaderProgram.material.shininess = gl.getUniformLocation(shaderProgram, 'material.shininess');
 
-                gl.useProgram(shaderProgram3);
-                shaderProgram3.vertexPositionAttribute = gl.getAttribLocation(shaderProgram3, 'aVertexPosition');
-                shaderProgram3.normalAttribute = gl.getAttribLocation(shaderProgram3, 'aNormal');
-                shaderProgram3.textureCoordAttribute = gl.getAttribLocation(shaderProgram3, 'aTextureCoord');
-                shaderProgram3.model = gl.getUniformLocation(shaderProgram3, 'model');
-                shaderProgram3.view = gl.getUniformLocation(shaderProgram3, 'view');
-                shaderProgram3.projection = gl.getUniformLocation(shaderProgram3, 'projection');
-                shaderProgram3.color = gl.getUniformLocation(shaderProgram3, 'color');
-                shaderProgram3.texture1 = gl.getUniformLocation(shaderProgram3, 'texture1');
-                shaderProgram3.enableTexture = gl.getUniformLocation(shaderProgram3, 'enableTexture');
+                shaderProgram.light = {};
+                shaderProgram.light.position = gl.getUniformLocation(shaderProgram, 'light.position');
+                shaderProgram.light.ambient = gl.getUniformLocation(shaderProgram, 'light.ambient');
+                shaderProgram.light.diffuse = gl.getUniformLocation(shaderProgram, 'light.diffuse');
+                shaderProgram.light.specular = gl.getUniformLocation(shaderProgram, 'light.specular');
+                shaderProgram.light.constant = gl.getUniformLocation(shaderProgram, 'light.constant');
+                shaderProgram.light.linear = gl.getUniformLocation(shaderProgram, 'light.linear');
+                shaderProgram.light.quadratic = gl.getUniformLocation(shaderProgram, 'light.quadratic');
             }
 
             // Loading textures
@@ -336,20 +593,25 @@
                     gl.uniformMatrix4fv(shaderProgram.model, false, topMatrix('model'));
                     gl.uniformMatrix4fv(shaderProgram.view, false, topMatrix('view'));
                     gl.uniformMatrix4fv(shaderProgram.projection, false, topMatrix('projection'));
-                } else if(type == 'shaderProgram2') {
-                    gl.useProgram(shaderProgram2);
-                    gl.uniformMatrix4fv(shaderProgram2.model, false, topMatrix('model'));
-                    gl.uniformMatrix4fv(shaderProgram2.view, false, topMatrix('view'));
-                    gl.uniformMatrix4fv(shaderProgram2.projection, false, topMatrix('projection'));
-                    gl.uniform4fv(shaderProgram2.color, color);
-                } else if(type == 'shaderProgram3'){
-                    gl.useProgram(shaderProgram3);
-                    gl.uniformMatrix4fv(shaderProgram3.model, false, topMatrix('model'));
-                    gl.uniformMatrix4fv(shaderProgram3.view, false, topMatrix('view'));
-                    gl.uniformMatrix4fv(shaderProgram3.projection, false, topMatrix('projection'));
-                    gl.uniform3fv(shaderProgram3.color, color);
-                    gl.uniform1i(shaderProgram3.texture1, 0);
-                    gl.uniform1i(shaderProgram3.enableTexture, isShowTexture);
+                    gl.uniformMatrix3fv(shaderProgram.normalModel, false, mat3.normalFromMat4(mat3.create(), topMatrix('model')));
+                    gl.uniform3fv(shaderProgram.color, color);
+                    gl.uniform1i(shaderProgram.texture1, 0);
+                    gl.uniform1i(shaderProgram.enableTexture, isShowTexture);
+                    gl.uniform3fv(shaderProgram.viewPos, camera.position);
+                    gl.uniform1i(shaderProgram.isRenderingSun, isRenderingSun);
+
+                    gl.uniform1i(shaderProgram.material.diffuse, 0);
+                    gl.uniform1i(shaderProgram.material.specular, 1);
+                    gl.uniform1f(shaderProgram.material.shininess, 64.0);
+
+                    gl.uniform3fv(shaderProgram.light.position, sun.position);
+                    gl.uniform3fv(shaderProgram.light.ambient, vec3.set(vec3.create(), 0.2, 0.2, 0.2));
+                    gl.uniform3fv(shaderProgram.light.diffuse, vec3.set(vec3.create(), 0.8, 0.8, 0.8));
+                    gl.uniform3fv(shaderProgram.light.specular, vec3.set(vec3.create(), 0.2, 0.3, 0.2));
+
+                    gl.uniform1f(shaderProgram.light.constant, 1.0);
+                    gl.uniform1f(shaderProgram.light.linear, 0.000014);
+                    gl.uniform1f(shaderProgram.light.quadratic, 0.000000009);                     
                 } else {
                     console.error('ERROR：The shader program type is unknow.');
                 }
@@ -413,20 +675,37 @@
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(cube.vertices), gl.STATIC_DRAW);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cube.indices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram3.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.normalAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.textureCoordAttribute);
+                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
                 
-                genSphereBuffer(sphere, 1, 30, 30);
-                genSphereBuffer(space, 200, 30, 30);
-                genSphereBuffer(sun, 8, 30, 30);
-                genSphereBuffer(mercury, 0.3829, 30, 30);
-                genSphereBuffer(venus, 0.9399, 30, 30);
-                genSphereBuffer(venus_atm, 0.9499, 30, 30);
-                genSphereBuffer(earth, 0.99, 30, 30);
-                genSphereBuffer(earth_cloud, 1, 30, 30);
-                genSphereBuffer(mars, 0.532, 30, 30);
-                genSphereBuffer(moon, 0.27, 30, 30);
+                // genSphereBuffer(sphere, 1, 30, 30);
+
+                console.log(sun.diameter * 8 / jupiter.diameter);
+
+                genSphereBuffer(space, space.diameter, 30, 30);
+                genSphereBuffer(sun, sun.diameter * 8 / jupiter.diameter, 30, 30);
+
+                genSphereBuffer(mercury, mercury.diameter * (40 / jupiter.diameter), 30, 30);
+
+                genSphereBuffer(venus, venus.diameter * 0.99 * (40 / jupiter.diameter), 30, 30);
+                genSphereBuffer(venus.cloud, venus.diameter * (40 / jupiter.diameter), 30, 30);
+
+                genSphereBuffer(earth, earth.diameter * 0.99 * (40 / jupiter.diameter), 30, 30);
+                genSphereBuffer(earth.cloud, earth.diameter * (40 / jupiter.diameter), 30, 30);
+                genSphereBuffer(moon, moon.diameter * (40 / jupiter.diameter), 30, 30);
+
+                genSphereBuffer(mars, mars.diameter * (40 / jupiter.diameter), 30, 30);
+
+                genSphereBuffer(jupiter, 40, 30, 30);
+
+                genSphereBuffer(saturn, saturn.diameter * (40 / jupiter.diameter), 30, 30);
+
+                genSphereBuffer(uranus, uranus.diameter * (40 / jupiter.diameter), 30, 30);
+                
+                genSphereBuffer(neptune, neptune.diameter * (40 / jupiter.diameter), 30, 30);
+
+                genSphereBuffer(pluto, pluto.diameter * (40 / jupiter.diameter), 30, 30);
 
                 initMatrix();
             }
@@ -493,9 +772,9 @@
                 gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.vertices), gl.STATIC_DRAW);
                 gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.ebo);
                 gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.indices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram3.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.normalAttribute);
-                gl.enableVertexAttribArray(shaderProgram3.textureCoordAttribute);
+                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
             }
 
             function handleKeyDown(event) {
@@ -559,6 +838,13 @@
                         console.error("轉速只能介於0到20000之間。");
                     }
                 }
+
+                // Right Shift
+                if(currentPressedKeys[16]){
+                    camera.movespeed = 2.0;
+                }else{
+                    camera.movespeed = 0.2;
+                }
                 updateCameraStatus();
             }
 
@@ -606,7 +892,7 @@
             }
 
             function handleMouseDown(event){
-                console.log(camera.roll);
+
             }
 
             function tick() {
@@ -617,86 +903,110 @@
             }
 
             function animate() {
-                let currentFrame = new Date().getTime();
+                currentFrame = new Date().getTime();
                 if(lastFrame != 0) {
                     deltaFrame = currentFrame - lastFrame;
 
-                    earth.angle += (earth.speed * deltaFrame) / 1000.0;
-                    if(earth.angle > 360){
-                        earth.angle = earth.angle - 360;
-                        virtual_time.days += 1;
-                    }
+                    earth.rotate_angle += (earth.speed * deltaFrame) / 1000.0;
+                    limitTo360Deg(earth, "rotate_angle");
 
-                    moon.angle += earth.speed / 30 * deltaFrame / 1000.0;
-                    if(moon.angle > 360){
-                        moon.angle = moon.angle - 360;
-                    }
+                    earth.orbital_angle += (earth.speed / earth.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(earth, "orbital_angle");
 
-                    if(virtual_time.days > 30){
-                        virtual_time.months += 1;
-                        virtual_time.days -= 30;
-                    }
+                    moon.orbital_angle += earth.speed / moon.orbital_period * deltaFrame / 1000.0;
+                    limitTo360Deg(moon, "orbital_angle");
 
-                    earth.globalAngle += (earth.speed / 365 * deltaFrame) / 1000.0;
-                    if(earth.globalAngle > 360){
-                        earth.globalAngle = earth.globalAngle - 360;
-                    }
+                    sun.rotate_angle += (earth.speed / sun.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(sun, "rotate_angle");
 
-                    if(virtual_time.months > 12){
-                        virtual_time.days = 0;
-                        virtual_time.months -= 12;
-                        virtual_time.years += 1;
-                    }
+                    mercury.rotate_angle += (earth.speed / mercury.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(mercury, "rotate_angle");
+                    mercury.orbital_angle += (earth.speed / mercury.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(mercury, "orbital_angle");
 
-                    sun.angle += (earth.speed / 27 * deltaFrame) / 1000.0;
-                    if(sun.angle > 360){
-                        sun.angle = sun.angle - 360;
-                    }
+                    venus.rotate_angle += (earth.speed / venus.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(venus, "rotate_angle");
+                    venus.orbital_angle += (earth.speed / venus.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(venus, "orbital_angle");
 
-                    mercury.angle += (earth.speed / 58.82 * deltaFrame) / 1000.0;
-                    if(mercury.angle > 360){
-                        mercury.angle = mercury.angle - 360;
-                    }
-                    mercury.globalAngle += (earth.speed / 87.97 * deltaFrame) / 1000.0;
-                    if(mercury.globalAngle > 360){
-                        mercury.globalAngle = mercury.globalAngle - 360;
-                    }
+                    mars.rotate_angle += (earth.speed / mars.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(mars, "rotate_angle");
+                    mars.orbital_angle += (earth.speed / mars.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(mars, "orbital_angle");
 
-                    venus.angle += (earth.speed / 243.73 * deltaFrame) / 1000.0;
-                    if(venus.angle > 360){
-                        venus.angle = venus.angle - 360;
-                    }
-                    venus.globalAngle += (earth.speed / 224.7 * deltaFrame) / 1000.0;
-                    if(venus.globalAngle > 360){
-                        venus.globalAngle = venus.globalAngle - 360;
-                    }
+                    jupiter.rotate_angle += (earth.speed / jupiter.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(jupiter, "rotate_angle");
+                    jupiter.orbital_angle += (earth.speed / jupiter.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(jupiter, "orbital_angle");
 
-                    mars.angle += (earth.speed / 1.03 * deltaFrame) / 1000.0;
-                    if(mars.angle > 360){
-                        mars.angle = mars.angle - 360;
-                    }
-                    mars.globalAngle += (earth.speed / 686.93 * deltaFrame) / 1000.0;
-                    if(mars.globalAngle > 360){
-                        mars.globalAngle = mars.globalAngle - 360;
-                    }
+                    saturn.rotate_angle += (earth.speed / saturn.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(saturn, "rotate_angle");
+                    saturn.orbital_angle += (earth.speed / saturn.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(saturn, "orbital_angle");
 
-                    space.angle += (earth.speed / 360 * deltaFrame) / 1000.0;
-                    if(space.angle > 360){
-                        space.angle = space.angle - 360;
-                    }
+                    uranus.rotate_angle += (earth.speed / uranus.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(uranus, "rotate_angle");
+                    uranus.orbital_angle += (earth.speed / uranus.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(uranus, "orbital_angle");
+
+                    neptune.rotate_angle += (earth.speed / neptune.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(neptune, "rotate_angle");
+                    neptune.orbital_angle += (earth.speed / neptune.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(neptune, "orbital_angle");
+
+                    pluto.rotate_angle += (earth.speed / pluto.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(pluto, "rotate_angle");
+                    pluto.orbital_angle += (earth.speed / pluto.orbital_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(pluto, "orbital_angle");
+
+                    space.rotate_angle += (earth.speed / space.rotate_period * deltaFrame) / 1000.0;
+                    limitTo360Deg(space, "rotate_angle");
                 }
                 lastFrame = currentFrame;
             }
 
-            function drawSphere(object, neverShowAxis = false){
+            function limitTo360Deg(object, type){
+                if(type == 'rotate_angle'){
+                    if(object.rotate_angle > 360){
+                        object.rotate_angle = object.rotate_angle - 360;
+                        object.count.rotate += 1;
+                    }
+                }else if(type == 'orbital_angle'){
+                    if(object.orbital_angle > 360){
+                        object.orbital_angle = object.orbital_angle - 360;
+                        object.count.orbit += 1;
+                    }
+                }else{
+                    error.log("Unknow type error!");
+                }
+            }
+
+            function drawSphere(object, neverShowAxis = false, specular = false){
                 pushMatrix('model');
+
+                    if(object.type == "star"){
+                        isRenderingSun = true;
+                    }else{
+                        isRenderingSun = false;
+                    }
+
+                    gl.activeTexture(gl.TEXTURE0);
                     gl.bindTexture(gl.TEXTURE_2D, object.texture);
+
+                    if(specular){
+                        gl.activeTexture(gl.TEXTURE1);
+                        gl.bindTexture(gl.TEXTURE_2D, object.specular_texture);
+                    }else{
+                        gl.activeTexture(gl.TEXTURE1);
+                        gl.bindTexture(gl.TEXTURE_2D, object.texture);
+                    }
+
                     gl.bindBuffer(gl.ARRAY_BUFFER, object.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.ebo);
-                    gl.vertexAttribPointer(shaderProgram3.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram3.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    gl.vertexAttribPointer(shaderProgram3.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms('shaderProgram3');
+                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
+                    setMatrixUniforms('shaderProgram');
                     gl.drawElements(gl.TRIANGLES, object.indices.length, gl.UNSIGNED_SHORT, 0);
                     if(!axisOff && !neverShowAxis){
                         drawAxis(object.radius);
@@ -708,10 +1018,10 @@
                 pushMatrix('model');
                     gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
-                    gl.vertexAttribPointer(shaderProgram3.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram3.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    gl.vertexAttribPointer(shaderProgram3.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms('shaderProgram3');
+                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
+                    setMatrixUniforms('shaderProgram');
                     gl.drawElements(gl.TRIANGLES, cube.indices.length, gl.UNSIGNED_SHORT, 0);
                 popMatrix('model');
             }
@@ -746,7 +1056,7 @@
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
                 mat4.identity(topMatrix('projection'));
-                mat4.perspective(topMatrix('projection'), 45, gl.viewportWidth / gl.viewportHeight, 0.1, 300.0);
+                mat4.perspective(topMatrix('projection'), 45, gl.viewportWidth / gl.viewportHeight, 0.1, 20000.0);
                 
                 mat4.identity(topMatrix('view'));
                 let lookAtMatrix = mat4.create(topMatrix('view'));
@@ -758,80 +1068,141 @@
 
                 gl.bindTexture(gl.TEXTURE_2D, cube.texture);
                 
-                // drawCube();
-
-                
-                
+                // 繪製太空
                 pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(space.angle), [0, 1, 0]);
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(space.rotate_angle), [0, 1, 0]);
                     drawSphere(space, true);
                 popMatrix('model');
 
+                // 繪製太陽
                 pushMatrix('model');
+                    mat4.translate(topMatrix('model'), topMatrix('model'), sun.position);
                     pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(7.25), [-1, 0, 0]);
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.angle), [0, 1, 0]);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.obliquity), [-1, 0, 0]);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.rotate_angle), [0, 1, 0]);
                         drawSphere(sun);
                     popMatrix('model');
 
                     // 水星
                     pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.globalAngle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [8, 0, 8]);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [mercury.AU, 0, 0]);
                         pushMatrix('model');
-                            // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.angle), [0, 1, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mercury.rotate_angle), [0, 1, 0]);
                             drawSphere(mercury);
                         popMatrix('model');
                     popMatrix('model');
 
                     // 金星
                     pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.globalAngle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [15, 0, 15]);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [venus.AU, 0, 0]);
                         pushMatrix('model');
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(177.36), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.angle), [0, 1, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.rotate_angle), [0, 1, 0]);
                             drawSphere(venus);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.angle / 2), [0, 1, 0]);
-                            drawSphere(venus_atm, true);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(venus.rotate_angle), [0, 1, 0]);
+                            drawSphere(venus.cloud, true);
                         popMatrix('model');
                     popMatrix('model');
 
                     // 地球
                     pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.globalAngle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [25, 0, 25]);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [earth.AU, 0, 0]);
                         pushMatrix('model');
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(23.5), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle), [0, 1, 0]);
-                            drawSphere(earth);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.angle / 2), [0, 1, 0]);
-                            drawSphere(earth_cloud, true);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle), [0, 1, 0]);
+                            drawSphere(earth, false, true);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle / 4), [0, 1, 0]);
+                            drawSphere(earth.cloud, true);
                         popMatrix('model');
 
                         // 月亮
                         pushMatrix('model');
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(6.68), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.angle), [0, 1, 0]);
-                            mat4.translate(topMatrix('model'), topMatrix('model'), [5, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.orbital_angle), [0, 1, 0]);
+                            mat4.translate(topMatrix('model'), topMatrix('model'), [moon.AU, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(moon.obliquity), [-1, 0, 0]);
                             // 不用加上月球自轉，因為前者的旋轉就是針對月球的 local coordinate 
                             // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(0), [0, 1, 0]);
                             drawSphere(moon);
                         popMatrix('model');
                     popMatrix('model');
-                popMatrix('model');
 
-                // 火星
-                pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.globalAngle), [0, 1, 0]);
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [35, 0, 35]);
+                    // 火星
                     pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(25.19), [-1, 0, 0]);
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.angle), [0, 1, 0]);
-                        drawSphere(mars);
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [mars.AU, 0, 0]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(mars.rotate_angle), [0, 1, 0]);
+                            drawSphere(mars);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 木星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(jupiter.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [jupiter.AU, 0, 0]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(jupiter.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(jupiter.rotate_angle), [0, 1, 0]);
+                            drawSphere(jupiter);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 土星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(saturn.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [saturn.AU, 0, 0]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(saturn.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(saturn.rotate_angle), [0, 1, 0]);
+                            drawSphere(saturn);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 天王星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(uranus.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [uranus.AU, 0, 0]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(uranus.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(uranus.rotate_angle), [0, 1, 0]);
+                            drawSphere(uranus);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 海王星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(neptune.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [neptune.AU, 0, 0]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(neptune.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(neptune.rotate_angle), [0, 1, 0]);
+                            drawSphere(neptune);
+                        popMatrix('model');
+                    popMatrix('model');
+
+                    // 冥王星
+                    pushMatrix('model');
+                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(pluto.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [pluto.AU, 0, 0]);
+                        pushMatrix('model');
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(pluto.obliquity), [-1, 0, 0]);
+                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(pluto.rotate_angle), [0, 1, 0]);
+                            drawSphere(pluto);
+                        popMatrix('model');
                     popMatrix('model');
                 popMatrix('model');
+            }
+
+            function resize(gl) {
+				gl.canvas.width = window.innerWidth;
+				gl.canvas.height = window.innerHeight;
+                gl.viewportWidth = gl.canvas.width;
+                gl.viewportHeight = gl.canvas.height;
             }
 
             function webGLStart() {
@@ -858,18 +1229,28 @@
                 document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
                 updateCameraStatus();
 
+                resize(gl);
+		        window.addEventListener('resize', function() {
+                    resize(gl);
+                });
+
                 cube.texture = loadTexture("/WebGL/images/TextureCube/sand.jpg");
                 // sphere.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
                 space.texture = loadTexture("/WebGL/images/SolarSystem/stars_milky_way.jpg");
                 sun.texture = loadTexture("/WebGL/images/SolarSystem/sun.jpg");
                 mercury.texture = loadTexture("/WebGL/images/SolarSystem/mercury.jpg");
                 venus.texture = loadTexture("/WebGL/images/SolarSystem/venus.jpg");
-                venus_atm.texture = loadTexture("/WebGL/images/SolarSystem/venus_atmosphere.jpg");
+                venus.cloud.texture = loadTexture("/WebGL/images/SolarSystem/venus_atmosphere.jpg");
                 earth.texture = loadTexture("/WebGL/images/SolarSystem/earth_daytime.jpg");
-                earth_cloud.texture = loadTexture("/WebGL/images/SolarSystem/earth_clouds.png");
+                earth.specular_texture = loadTexture("/WebGL/images/SolarSystem/2k_earth_specular_map.tif");
+                earth.cloud.texture = loadTexture("/WebGL/images/SolarSystem/earth_clouds.png");
                 moon.texture = loadTexture("/WebGL/images/SolarSystem/moon.jpg");
                 mars.texture = loadTexture("/WebGL/images/SolarSystem/mars.jpg");
-                gl.activeTexture(gl.TEXTURE0);
+                jupiter.texture = loadTexture("/WebGL/images/SolarSystem/jupiter.jpg");
+                saturn.texture = loadTexture("/WebGL/images/SolarSystem/saturn.jpg");
+                uranus.texture = loadTexture("/WebGL/images/SolarSystem/uranus.jpg");
+                neptune.texture = loadTexture("/WebGL/images/SolarSystem/neptune.jpg");
+                pluto.texture = loadTexture("/WebGL/images/SolarSystem/pluto.jpg");
 
                 tick();
             }
@@ -913,14 +1294,25 @@
                     }
                 }
 
-                $('#years').text(virtual_time.years);
-                $('#months').text(virtual_time.months);
-                $('#days').text(virtual_time.days);
+                $('#years').text(earth.count.orbit);
+                $('#months').text(moon.count.orbit);
+                $('#days').text(earth.count.rotate);
                 $('#speed').text(earth.speed);
                 $('#yaw').text(Math.round(camera.yaw * 10) / 10);
                 $('#pitch').text(Math.round(camera.pitch * 10) / 10);
-                $('#roll').text(Math.round(camera.roll * 10) / 10);
             }
+
+            $('.switch-box').click(function(e){
+                if(isInfoPlaneOn){
+                    $(this).text('On');
+                    isInfoPlaneOn = false;
+                    $(this).parent().addClass('hide');
+                }else{
+                    $(this).text('Off');
+                    isInfoPlaneOn = true;
+                    $(this).parent().removeClass('hide');
+                }
+            });
 
             webGLStart();
         });
