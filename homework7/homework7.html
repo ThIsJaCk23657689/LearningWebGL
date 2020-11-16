@@ -211,8 +211,9 @@
             let cube = {};
             let sphere = {};
 
-            // 比例尺設定: 
+            let G = 6.673e-11;
 
+            // 比例尺設定:
             let space = {
                 "type": "universe",
                 "diameter": 10000,
@@ -240,6 +241,7 @@
                 "rotate_period": 25.379995,
                 "orbital_angle": 0,
                 "rotate_angle": 0,
+                "mass": 1.989,
                 "count": {
                     "orbit": 0,
                     "rotate": 0,
@@ -288,11 +290,15 @@
                 "type": "planet",
                 "diameter": 12742,
                 "AU": 1 * 200 + 40,
+                "position": vec3.set(vec3.create(), 240, 0, 0),
                 "obliquity": 23.4,
                 "orbital_period": 365.25636,
                 "rotate_period": 1,
                 "orbital_angle": 0,
                 "rotate_angle": 0,
+                "mass": 5.972e24,
+                "perihelion": 0.9832,
+                "velocity": vec3.set(vec3.create(), 0, 0, 200),
                 "count": {
                     "orbit": 0,
                     "rotate": 0,
@@ -442,7 +448,7 @@
 
             let camera = {};
             // 154
-            camera.position = vec3.set(vec3.create(), 1911, 20, 432);
+            camera.position = vec3.set(vec3.create(), 242, 0, 29);
             // camera.position = vec3.set(vec3.create(), 9, 0, 57);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
@@ -1082,6 +1088,12 @@
                     earth.orbital_angle += (earth.speed / earth.orbital_period * deltaFrame) / 1000.0;
                     limitTo360Deg(earth, "orbital_angle");
 
+                    let temp = vec3.negate(vec3.create(), vec3.normalize(vec3.create(), earth.position)) ;
+                    earth.acceleration = vec3.scale(vec3.create(), temp, G * sun.mass / vec3.len(earth.position)^2)
+                    earth.velocity = vec3.add(vec3.create(), earth.velocity, earth.acceleration);
+                    earth.position = vec3.add(vec3.create(), earth.position, vec3.scale(vec3.create(), earth.velocity, deltaFrame / 1000.0));
+                    console.log(earth.acceleration);
+
                     moon.orbital_angle += earth.speed / moon.orbital_period * deltaFrame / 1000.0;
                     limitTo360Deg(moon, "orbital_angle");
 
@@ -1324,8 +1336,8 @@
                     // 地球
                     darwOrbit(earth.orbit);
                     pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.orbital_angle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [earth.AU, 0, 0]);
+                        // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.orbital_angle), [0, 1, 0]);
+                        mat4.translate(topMatrix('model'), topMatrix('model'), earth.position);
                         pushMatrix('model');
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.obliquity), [-1, 0, 0]);
                             mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle), [0, 1, 0]);

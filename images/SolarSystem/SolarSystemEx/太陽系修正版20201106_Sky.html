@@ -1150,19 +1150,19 @@
 	
 		moon_ps = document.getElementById('moonsize').value/10;
 	
-	 blend_enable=document.getElementById('BlendTest').checked;
-	milkyway_enable=document.getElementById('milkyway').checked;
-	constellation_line=document.getElementById('Constellation').checked;
-	gl.uniform1i(shaderProgram.AlphaTestUniform, document.getElementById('AlphaTest').checked?1:0);
+	 	blend_enable=document.getElementById('BlendTest').checked;
+		milkyway_enable=document.getElementById('milkyway').checked;
+		constellation_line=document.getElementById('Constellation').checked;
+		gl.uniform1i(shaderProgram.AlphaTestUniform, document.getElementById('AlphaTest').checked?1:0);
 	
         gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-      var aspect = gl.viewportWidth / gl.viewportHeight;
-      var fovy = 45.0;
-      var zNear = 0.1;
-      var zFar = 1000.0;
-      mat4.perspective(fovy, aspect, zNear, zFar, TopMatrix("projection"));
+		var aspect = gl.viewportWidth / gl.viewportHeight;
+		var fovy = 45.0;
+		var zNear = 0.1;
+		var zFar = 1000.0;
+		mat4.perspective(fovy, aspect, zNear, zFar, TopMatrix("projection"));
 
         mat4.identity(TopMatrix("view"));
         mat4.translate(TopMatrix("view"), [0, 0, -6]);
@@ -1282,7 +1282,8 @@
       lastTime = timeNow;
     }
 
-	var setup_select_locate=false;
+	var setup_select_locate = false;
+	
     function tick() {
         requestAnimFrame(tick);
 		handleKeys();
@@ -1310,16 +1311,15 @@
     }
 	
 	function resize(gl) {
-				gl.canvas.width = window.innerWidth;
-				gl.canvas.height = window.innerHeight * 0.8;
-	  gl.viewportWidth = gl.canvas.clientWidth;
-	  gl.viewportHeight = gl.canvas.clientHeight;
+		gl.canvas.width = window.innerWidth;
+		gl.canvas.height = window.innerHeight * 0.8;
+	  	gl.viewportWidth = gl.canvas.clientWidth;
+	  	gl.viewportHeight = gl.canvas.clientHeight;
 	}
 
 
     function webGLStart() {
-        var canvas = document.getElementById("lesson11-canvas");
-		;
+        var canvas = document.getElementById("lesson11-canvas")
 		
         initGL(canvas);
         initShaders();
