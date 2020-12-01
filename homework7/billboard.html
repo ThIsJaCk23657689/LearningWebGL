@@ -67,7 +67,6 @@
             <div class="row">                
                 <div class="col-md-12 text-center">
                     <p>
-                        F 開 / 關 XYZ 軸<br/>
                         W / S / A / D 可以移動攝影機；滑鼠移動視角 <br/>
                     </p>
                 </div>
@@ -496,21 +495,6 @@
             function handleKeyDown(event) {
                 currentPressedKeys[event.keyCode] = true;
 
-                // F
-                // if(currentPressedKeys[70]){
-                //     if(axisOff){
-                //         axisOff = false;
-                //     }else{
-                //         axisOff = true;
-                //     }
-                // }
-
-                if(String.fromCharCode(event.keyCode) == 'F') {
-                    filter += 1;
-                    if(filter == 3) {
-                        filter = 0;
-                    }
-                }
             }
 
             function handleKeyUp(event) {
@@ -651,6 +635,16 @@
                     billboard_x = vec4.normalize(vec4.create(), vec4.multiply(vec4.create(), billboard_worldUp, billboard_z));
                 }
 
+                //  先取得攝影機到物體的向量
+                let viewToFrag = vec3.normalize(vec3.create(), vec3.subtract(vec3.create(), location, camera.position));
+
+                // 將物體的正面，投影到 x 軸
+                let fragFront = vec3.normalize(vec3.create(), vec3.set(vec3.create(), 0, 0, viewToFrag[2]));
+
+                // 求出角度兩向量之夾角
+                let angle_x = vec3.dot(fragFront, viewToFrag);
+                angle_x = Math.acos(angle_x);
+
                 // 設定透明度
                 global_alpha = alpha;
 
@@ -666,6 +660,7 @@
                     }else {
                         mat4.translate(topMatrix('model'), topMatrix('model'), location);
                     }
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), angle_x, [0.0, 1.0, 0.0]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [size, size, 1.0]);
 
                     gl.bindBuffer(gl.ARRAY_BUFFER, plane.vbo);
