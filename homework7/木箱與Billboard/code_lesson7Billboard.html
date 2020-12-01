@@ -152,6 +152,7 @@
       var texturesToLoad = ["cloud1.png", "cloud2.png", "cloud3.png", "cloud4.png"];
       var treeToLoad = ["tree1.png", "tree2.png", "tree3.png", "tree4.png"];
       var texturesLoaddedCount = 0;
+      
       function loadTexture(sFilename) {
         var tex_obj = gl.createTexture();
         tex_obj.image = new Image();
@@ -166,6 +167,7 @@
         tex_obj.image.src = sFilename;
         return tex_obj;
       }
+
       function initTexture(){
         for(var i in texturesToLoad){
           cloud_texture[i] = loadTexture(texturesToLoad[i]);
@@ -303,6 +305,7 @@
           xSpeed += 1;
         }
       }
+      
       var clouds = [];
       var cloud_count = 100;
       var cloud_setting = {
@@ -319,6 +322,7 @@
       function getRandomArbitrary(min, max) {
         return Math.random() * (max - min) + min;
       }
+      
       function initClouds(){
         for(var i = 0; i < cloud_count; ++i){
           clouds[i] = {
@@ -337,6 +341,7 @@
           }
         }
       }
+      
       var trees = [];
       var trees_count = 60;
       var trees_setting = {
@@ -350,6 +355,7 @@
           z:{min:-60,max:60}
         }
       };
+
       function initTrees(){
         for(var i = 0; i < trees_count; ++i){
           trees[i] = {
@@ -363,6 +369,7 @@
           }
         }
       }
+
       var billboardVertexPositionBuffer;
       var billboardVertexTextureCoordBuffer;
       var billboardVertexIndexBuffer;
@@ -466,6 +473,7 @@
         billboardBuffer.VertexPosition.itemSize = 3;
         billboardBuffer.VertexPosition.numItems = 4;
       }
+
       function get_vec(vecArray){
         vecArray.x = vecArray[0];
         vecArray.y = vecArray[1];
@@ -473,6 +481,7 @@
         vecArray.w = vecArray[3];
         return vecArray;
       }
+
       function get_w(){
         var result = mat4.create();
         var model_view_matrix = mat4.create();
@@ -490,12 +499,15 @@
           model_view_matrix[14]
         ]);
       }
+
       function get_x(matrix){
         return get_vec([matrix[0], matrix[4], matrix[8], matrix[12]]);
       }
+
       function get_y(matrix){
         return get_vec([matrix[1], matrix[5], matrix[9], matrix[13]]);
       }
+
       function vecNormalize(vec){
         var vecLength = Math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z);
         vec.x = (vecLength <= 0.00001) ? 0 : vec.x / vecLength;
@@ -503,6 +515,7 @@
         vec.z = (vecLength <= 0.00001) ? 0 : vec.z / vecLength;
         return vec;
       }
+
       function drawBillboard(pos,w,h,method,alpha,blend_flag) {
         var w_axis = get_w();
         var Billboard_x = vecNormalize(get_vec([ w_axis.z, 0.0, -w_axis.x, 0.0]));
@@ -562,6 +575,7 @@
         gl.uniform1f(shaderProgram.alphaUniform, 1.0);
         if(blend_flag != true)gl.disable(gl.BLEND);
       }
+      
       function drawScene() {
         gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
         gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

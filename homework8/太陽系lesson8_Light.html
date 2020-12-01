@@ -1,0 +1,1734 @@
+<html>
+
+<head>
+<title>WebGL course 8 太陽系打光</title>
+<meta http-equiv="content-type" content="text/html; charset=UTF8">
+
+<script type="text/javascript" src="../GLjs/glMatrix-0.9.5.min.js"></script>
+<script type="text/javascript" src="../GLjs/webgl-utils.js"></script>
+
+<style>
+	body {
+	  margin: 0;
+	}
+	canvas {
+	  width: 100vw;
+	  height: 80vh;
+	  display: block;
+	  border: none;
+	}
+</style>
+
+<script id="shader-header" type="x-shader/x-header">
+  precision mediump float;
+  struct glLight {//don't use gl_light
+	vec4 position;
+	vec4 direction;
+	vec4 ambient;
+	vec4 diffuse;
+	vec4 specular;
+	float spotCutOff;
+	float constantAttenuation;
+	float linearAttenuation;
+	float quadraticAttenuation;
+	float spotExponent;
+	bool isSpot;
+  };
+  struct glMaterial {//don't use gl_Material
+	vec4 ambient;
+	vec4 diffuse;
+	vec4 specular;
+	vec4 emission;
+	float shiness;
+  };
+</script>
+
+<script id="shader-fs" type="x-shader/x-fragment">
+    precision mediump float;
+
+	float PI=3.14159265359;
+
+    varying vec4 vVertexColor;
+	varying vec3 vVertexTexcoord;
+	varying float vHomoW;
+
+	//法向量線性內插
+	varying vec3 vNormal;
+	//光線相對點的向量線性內插
+	varying vec3 vLight;
+	//眼睛相對點的向量線性內插
+	varying vec3 vEye;
+
+	uniform sampler2D uSampler;
+
+	uniform mat4 uTextureMatrix;
+	uniform bool uSphereSampling;
+
+	uniform bool uAlphaTest;
+
+    uniform bool uUseLighting;
+    uniform glMaterial uFrontMaterial;
+    uniform glLight uLights[2];
+
+	// emulate OpenGL 4.5's mix(,,bool)
+	float mix(float x, float y, bool a) {
+	  return a ? y : x;
+	}
+	float atan2(in float y, in float x)
+	{
+		bool s = (abs(x) > abs(y));
+		return mix(0.5*PI - atan(x,y), atan(y,x), s);
+	}
+	float agd(in float theta){//arc gudermannian function
+		float dslope=tan(0.25*PI+0.5*theta);
+		return log(dslope);
+	}
+	vec4 textureSphere(sampler2D samp, vec3 texcoord)
+	{
+		float s_rad=0.5*(atan2(texcoord.s, texcoord.p)+1.5*PI)/PI;
+		float t_rad=(atan2(texcoord.t, sqrt(texcoord.s*texcoord.s+texcoord.p*texcoord.p))+0.5*PI)/PI;
+		return texture2D(uSampler,vec2(s_rad,t_rad));
+
+	}
+
+    void main(void) {
+		vec4 textcoord = uTextureMatrix * vec4(vVertexTexcoord,1.0);
+		vec4 texel = texture2D(uSampler, textcoord.st ); //紋理座標通常使用s和t來表示
+		if(uSphereSampling){
+			texel = textureSphere(uSampler,textcoord.stp);
+		}
+		vec4 pixel = texel*vVertexColor;
+		if(pixel.a<0.1 && uAlphaTest)discard;
+
+        if (!uUseLighting) {
+          gl_FragColor = pixel;
+        }else{
+          vec3 Normal = normalize(vNormal);
+          vec3 Light = normalize(vLight);
+          vec3 Eye = normalize(vEye);
+          vec3 Half = normalize(Eye+Light);
+
+          float I_D = max(dot(Normal,Light),0.0);
+          float I_S = pow(max(dot(Half,Normal),0.0),uFrontMaterial.shiness);
+
+          vec4 diffuse = I_D * uLights[0].diffuse * uFrontMaterial.diffuse * pixel;
+
+          vec4 specular = vec4(I_S * uLights[0].specular.rgb * uFrontMaterial.specular.rgb, pixel.a);
+          vec4 ambient = uLights[0].ambient * uFrontMaterial.ambient * pixel;
+		  pixel = ambient + diffuse + specular;
+          gl_FragColor = vec4(pixel.rgb, pixel.a * texel.a);
+        }
+
+    }
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+	precision mediump float;
+
+    attribute vec4 aVertexPosition;
+    attribute vec4 aVertexColor;
+	attribute vec2 aVertexTexcoord;
+	attribute vec3 aVertexNormal;
+
+    uniform mat4 uViewMatrix;
+	uniform mat4 uViewMatrixInv;
+    uniform mat4 uModelMatrix;
+	uniform mat4 uTextureMatrix;
+    uniform mat4 uProjectionMatrix;
+    uniform mat3 uNormalMatrix;
+
+    uniform glLight uLights[2];
+
+	uniform bool uSphereSampling;
+
+	uniform vec3 camera_position;
+
+    varying vec4 vVertexColor;
+	varying vec3 vVertexTexcoord;
+	varying float vHomoW;
+
+	//法向量線性內插
+	varying vec3 vNormal;
+	//光線相對點的向量線性內插
+	varying vec3 vLight;
+	//眼睛相對點的向量線性內插
+	varying vec3 vEye;
+
+    void main(void) {
+        mat4 lModelViewMatrix = uViewMatrix * uModelMatrix;
+		float homo = aVertexPosition.w;
+		vHomoW = homo;
+		if(abs(homo)<1e-14)homo=1.0;
+        gl_Position = uProjectionMatrix * lModelViewMatrix * (aVertexPosition/homo);
+		vVertexColor = aVertexColor;
+
+        vec4 eyePosition = lModelViewMatrix * (aVertexPosition/homo);
+        vec4 eyeLightPos = uViewMatrix * uLights[0].position;
+        vNormal =  normalize(uNormalMatrix * aVertexNormal);
+        vLight = (eyeLightPos - eyePosition).xyz ;
+        vEye = -eyePosition.xyz;
+
+		if(uSphereSampling){
+			//步驟
+			//首先在眼睛坐標系中，將頂點與眼睛位置相減得到向量
+			//再透過將向量乘上 ViewMatrix 的反矩陣將向量變換回世界坐標系
+			//由於環景貼圖的貼圖座標是由世界坐標系原點指向無窮遠的單位向量
+			//因此需要再將其轉為單位向量
+			//最終獲得的向量即為環景貼圖的貼圖座標
+			vec3 focusVec = vec4(
+				normalize(//轉為單位向量
+					(uViewMatrixInv * (//乘上ViewMatrix的反矩陣
+						(lModelViewMatrix*vec4(aVertexPosition/homo))-vec4(camera_position,1.0)//計算由眼睛指向頂點的向量
+					)).xyz
+				)
+			, 1.0).xyz;
+			vVertexTexcoord.stp = vec3(focusVec.x, -focusVec.yz);//眼睛方向是-w軸(-z軸)，故z要加負號校正；y貼圖用y-flip校正。
+		}else{
+			//不使用環景貼圖時，就直接使用原本給定的貼圖座標
+			vVertexTexcoord.stp = vec3(aVertexTexcoord, 0.0);
+		}
+
+
+    }
+</script>
+
+<script type="text/javascript">
+
+    var gl;
+
+    function initGL(canvas) {
+        try {
+            gl = canvas.getContext("experimental-webgl");
+            gl.viewportWidth = canvas.width;
+            gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+            alert("Could not initialise WebGL, sorry :-(");
+        }
+       //若不提供uniform boolean傳遞，則用uniform1i代替
+        if(typeof gl.uniform1b !== 'function')
+        gl.uniform1b = function(binding_data, bool_val){
+          gl.uniform1i(binding_data, !bool_val ? 0 : 1);
+        };
+    }
+
+
+    function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+		var shaderHeader = document.getElementById("shader-header");
+
+        if (!shaderScript) {
+            return null;
+        }
+
+        var str = "", header = '';
+        var k = shaderScript.firstChild;
+        while (k) {
+            if (k.nodeType == 3) {
+                str += k.textContent;
+            }
+            k = k.nextSibling;
+        }
+
+        k = shaderHeader.firstChild;
+        while (k) {
+          if (k.nodeType == Node.TEXT_NODE) header += k.textContent;
+          k = k.nextSibling;
+        }
+        if(header && header !== '')str = header + '\n' + str;
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+            shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+            shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+            return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            alert(gl.getShaderInfoLog(shader));
+            return null;
+        }
+
+        return shader;
+    }
+
+
+      var lightStructMembers = [
+        "position",
+        "direction",
+
+        "diffuse",
+        "specular",
+        "ambient",
+
+        "spotCutOff",
+        "constantAttenuation",
+        "linearAttenuation",
+        "quadraticAttenuation",
+        "spotExponent",
+        "isSpot",
+      ];
+
+      var materialStructMembers = [
+        "ambient",
+        "diffuse",
+        "specular",
+        "emission",
+        "shiness"
+      ];
+
+    var shaderProgram;
+
+    function initShaders() {
+        var fragmentShader = getShader(gl, "shader-fs");
+        var vertexShader = getShader(gl, "shader-vs");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+			console.log(gl.getProgramInfoLog(shaderProgram));
+            alert("Could not initialise shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+        gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+        shaderProgram.vertexColorAttribute = gl.getAttribLocation(shaderProgram, "aVertexColor");
+        gl.enableVertexAttribArray(shaderProgram.vertexColorAttribute);
+
+        shaderProgram.vertexTexcoordAttribute = gl.getAttribLocation(shaderProgram, "aVertexTexcoord");
+        gl.enableVertexAttribArray(shaderProgram.vertexTexcoordAttribute);
+
+        shaderProgram.vertexNormalAttribute = gl.getAttribLocation(shaderProgram, "aVertexNormal");
+        gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
+
+        shaderProgram.projectionMatrixUniform =
+					gl.getUniformLocation(shaderProgram, "uProjectionMatrix");
+				shaderProgram.viewMatrixUniform =
+					gl.getUniformLocation(shaderProgram, "uViewMatrix");
+				shaderProgram.inverseViewMatrixUniform =
+					gl.getUniformLocation(shaderProgram, "uViewMatrixInv");
+				shaderProgram.modelMatrixUniform =
+					gl.getUniformLocation(shaderProgram, "uModelMatrix");
+				shaderProgram.normalMatrixUniform =
+					gl.getUniformLocation(shaderProgram, "uNormalMatrix");
+				shaderProgram.textureMatrixUniform =
+					gl.getUniformLocation(shaderProgram, "uTextureMatrix");
+
+				shaderProgram.cameraPositionUniform =
+					gl.getUniformLocation(shaderProgram, "camera_position");
+
+		shaderProgram.useLightingUniform = gl.getUniformLocation(shaderProgram, "uUseLighting");
+
+		shaderProgram.sphereSamplingUniform =
+          gl.getUniformLocation(shaderProgram, "uSphereSampling");
+		shaderProgram.AlphaTestUniform =
+          gl.getUniformLocation(shaderProgram, "uAlphaTest");
+
+
+
+		shaderProgram.samplerUniform =
+          gl.getUniformLocation(shaderProgram, "uSampler");
+
+		shaderProgram.FrontMaterialUniform = {};
+		var structMembers = {};
+		//將結構中每個成員變數Bind，並且儲存Bind資訊
+		for (var jj = 0; jj < materialStructMembers.length; ++jj) {
+			var name = materialStructMembers[jj];
+			structMembers[name] = gl.getUniformLocation(shaderProgram,
+			//組合出GLSL的Syntax以便Binding
+			"uFrontMaterial." + name);
+		}
+		shaderProgram.FrontMaterialUniform = structMembers;
+
+		shaderProgram.lightsUniform = {};
+		//場景中可以有多盞燈
+		for (var ll = 0; ll < numLights; ++ll) {
+			structMembers = {};
+			//將結構中每個成員變數Bind，並且儲存Bind資訊
+			for (var jj = 0; jj < lightStructMembers.length; ++jj) {
+				var name = lightStructMembers[jj];
+				structMembers[name] = gl.getUniformLocation(shaderProgram,
+				//組合出GLSL的Syntax以便Binding
+				"uLights[" + ll + "]." + name);
+			}
+			shaderProgram.lightsUniform[ll] = structMembers;
+		}
+
+
+    }
+
+	function initLighting(){
+          for(var i=0; i<numLights; ++i){
+            light_sources[i] = {
+              direction: [0.0, -1.0, 0.0, 0.0],
+              position: [0.0, 0.0, 0.0, 1.0],
+
+              ambient: [0.1, 0.1, 0.1, 1.0],
+              diffuse: [0.0, 0.0, 0.0, 1.0],
+              specular: [0.8, 0.8, 0.8, 1.0],//defult no specular
+
+              spotCutOff: 180.0,
+              spotExponent: 0.0,
+              constantAttenuation: 1.0,
+              linearAttenuation: 0.0,
+              quadraticAttenuation: 0.0,
+              isSpot: false
+            };
+          }
+        }
+        function UpdateLighting(){
+          for(var i=0; i<numLights; ++i){
+            gl.uniform4fv(shaderProgram.lightsUniform[i].direction,
+              light_sources[i].direction);
+            gl.uniform4fv(shaderProgram.lightsUniform[i].position,
+              light_sources[i].position);
+
+            gl.uniform4fv(shaderProgram.lightsUniform[i].ambient,
+              light_sources[i].ambient);
+            gl.uniform4fv(shaderProgram.lightsUniform[i].diffuse,
+              light_sources[i].diffuse);
+            gl.uniform4fv(shaderProgram.lightsUniform[i].specular,
+              light_sources[i].specular);
+
+            gl.uniform1f(shaderProgram.lightsUniform[i].spotCutOff,
+              light_sources[i].spotCutOff);
+            gl.uniform1f(shaderProgram.lightsUniform[i].spotExponent,
+              light_sources[i].spotExponent);
+            gl.uniform1f(shaderProgram.lightsUniform[i].constantAttenuation,
+              light_sources[i].constantAttenuation);
+            gl.uniform1f(shaderProgram.lightsUniform[i].linearAttenuation,
+              light_sources[i].linearAttenuation);
+            gl.uniform1f(shaderProgram.lightsUniform[i].quadraticAttenuation,
+              light_sources[i].quadraticAttenuation);
+            gl.uniform1b(shaderProgram.lightsUniform[i].isSpot,
+              light_sources[i].isSpot);
+          }
+        }
+
+        var front_material;
+        function initMaterial(){
+          front_material = {
+            ambient:[0.5, 0.5, 0.5, 1.0],//描述物體對環境光的反射程度
+            diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
+            specular:[0.0, 0.0, 0.0, 1.0],//描述物體的鏡面反射
+            emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+            shiness:256
+          };
+        }
+        function UpdateMaterial(objMaterial){
+          gl.uniform4fv(shaderProgram.FrontMaterialUniform.ambient,
+            objMaterial.ambient);
+          gl.uniform4fv(shaderProgram.FrontMaterialUniform.diffuse,
+            objMaterial.diffuse);
+          gl.uniform4fv(shaderProgram.FrontMaterialUniform.specular,
+            objMaterial.specular);
+          gl.uniform4fv(shaderProgram.FrontMaterialUniform.emission,
+            objMaterial.emission);
+          gl.uniform1f(shaderProgram.FrontMaterialUniform.shiness,
+            objMaterial.shiness);
+        }
+
+
+
+    var TopMatrix;
+    var matrix_modes = ["view", "model", "projection", "texture", "color"];
+    var special_matrix_modes = {
+      "modelview":{
+          "get_matrix":function(){
+              var result = mat4.create();
+              mat4.multiply(TopMatrix("view"), TopMatrix("model"), result);
+              return result;
+          }
+      },
+      "modelviewprojection":{
+          "get_matrix":function(){
+              var result = mat4.create();
+              mat4.multiply(TopMatrix("projection"), TopMatrix("modelview"), result);
+              return result;
+          }
+      },
+      "normal":{
+          "get_matrix":function(){
+              var normalMatrix = mat3.create();
+              mat4.toInverseMat3(TopMatrix("modelview"), normalMatrix);
+              mat3.transpose(normalMatrix);
+              return normalMatrix;
+          }
+      },
+      "identity":{
+          "get_matrix":function(){
+              var result = mat4.create();
+              mat4.identity(result);
+              return result;
+          }
+      }
+    };
+    var Matries = [];
+
+    function initMatrix(){
+        for(var i=0; i<matrix_modes.length; ++i){
+            Matries[matrix_modes[i]] = [mat4.create()];
+        }
+    }
+    TopMatrix = function(matrix_mode) {
+        if(special_matrix_modes[matrix_mode] &&
+            typeof special_matrix_modes[matrix_mode].get_matrix === "function"){
+              return special_matrix_modes[matrix_mode].get_matrix();
+        }
+        return Matries[matrix_mode][Matries[matrix_mode].length-1];
+    }
+    function PushMatrix(matrix_mode) {
+          var copy = mat4.create();
+          mat4.set(TopMatrix(matrix_mode), copy);
+          Matries[matrix_mode].push(copy);
+    }
+
+    function PopMatrix(matrix_mode) {
+        if (Matries[matrix_mode].length == 0) {
+            throw "Invalid popMatrix!";
+        }
+        Matries[matrix_mode].pop();
+    }
+
+    function setMatrixUniforms() {
+          gl.uniformMatrix4fv(shaderProgram.projectionMatrixUniform, false, TopMatrix("projection"));
+          gl.uniformMatrix4fv(shaderProgram.viewMatrixUniform, false, TopMatrix("view"));
+          gl.uniformMatrix4fv(shaderProgram.modelMatrixUniform, false, TopMatrix("model"));
+          gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, TopMatrix("normal"));
+		  gl.uniformMatrix4fv(shaderProgram.textureMatrixUniform, false, TopMatrix("texture"));
+    }
+
+
+    function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+    }
+
+
+    var mouseDown = false;
+    var lastMouseX = null;
+    var lastMouseY = null;
+
+	function getMouseState(mouse_mode,e){
+		var mouse_data = e;
+		var mouseX='pageX';
+		var mouseY='pageY';
+		switch (mouse_mode) {
+		  case 'touch':
+			mouse_data=e.touches[0];
+			mouseX='clientX';
+			mouseY='clientY';
+			break;
+		  default:
+		  case 'mouse':
+			mouse_data=e;
+			mouseX='pageX';
+			mouseY='pageY';
+			break;
+		}
+		return {data:mouse_data,X:mouseX,Y:mouseY};
+	}
+
+    var moonRotationMatrix = mat4.create();
+	var isDragging = false;
+    mat4.identity(moonRotationMatrix);
+	mat4.rotate(moonRotationMatrix, -Math.PI/6 , [1, 0, 0]);
+    function handleMouseDown(event) {
+        mouseDown = true;
+        lastMouseX = event.clientX;
+        lastMouseY = event.clientY;
+    }
+
+
+    function handleMouseUp(event) {
+        mouseDown = false;
+    }
+
+
+    function handleMouseMove(event) {
+        if (!mouseDown) {
+            return;
+        }
+        var newX = event.clientX;
+        var newY = event.clientY;
+
+        var deltaX = newX - lastMouseX
+        var newRotationMatrix = mat4.create();
+        mat4.identity(newRotationMatrix);
+        mat4.rotate(newRotationMatrix, degToRad(deltaX / 10), [0, 1, 0]);
+
+        var deltaY = newY - lastMouseY;
+        mat4.rotate(newRotationMatrix, degToRad(deltaY / 10), [1, 0, 0]);
+
+        mat4.multiply(newRotationMatrix, moonRotationMatrix, moonRotationMatrix);
+
+        lastMouseX = newX
+        lastMouseY = newY;
+    }
+
+	function mousedown(mouse_mode,e) {
+		var mouse=getMouseState(mouse_mode,e);
+		if(mouse_mode=='mouse')isDragging = true;
+		lastMouseX = mouse.data[mouse.X];
+		lastMouseY = mouse.data[mouse.Y];
+	}
+	function mousemove(mouse_mode,e) {
+		var mouse=getMouseState(mouse_mode,e);
+		if (isDragging || mouse_mode=='touch') {
+			if(mouse_mode=='touch')e.preventDefault();
+			var newX = mouse.data[mouse.X];
+			var newY = mouse.data[mouse.Y];
+
+			var deltaX = newX - lastMouseX
+			var newRotationMatrix = mat4.create();
+			mat4.identity(newRotationMatrix);
+			mat4.rotate(newRotationMatrix, degToRad(deltaX / 10), [0, 1, 0]);
+
+			var deltaY = newY - lastMouseY;
+			mat4.rotate(newRotationMatrix, degToRad(deltaY / 10), [1, 0, 0]);
+
+			mat4.multiply(newRotationMatrix, moonRotationMatrix, moonRotationMatrix);
+
+			lastMouseX = newX
+			lastMouseY = newY;
+
+		}
+	}
+	function onmouseup(e) { isDragging = false; }
+
+
+
+      var light_sources = [];
+      var numLights = 1;
+
+
+
+		//以....為變換中心做變換
+	  function transformationBy(matrix,trans,center,value1,value2){
+			mat4.translate(matrix, center);
+			trans(matrix,value1,value2);
+			mat4.translate(matrix, [-center[0],-center[1],-center[2]]);
+	  }
+
+
+      function handleLoadedTexture(texture) {
+        gl.bindTexture(gl.TEXTURE_2D, texture); //綁定紋理到 gl.TEXTURE_2D
+        //gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // 所有被載入紋理圖片需要做水平翻轉
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+        //影像類型、細節層級、顯示卡儲存影像的格式、影像各種通道的大小(也就是儲存於 R、G、B 之資料類型)、影像本身
+
+        //NEAREST使用原始影像的原樣去進行紋理特殊縮放
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR); //小圖貼大面
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); //大圖貼小面
+		gl.generateMipmap(gl.TEXTURE_2D);
+        gl.bindTexture(gl.TEXTURE_2D, null);  //將當前紋理設置為null
+      }
+
+
+      var textures={};  //建立全域變數來儲存紋理
+
+
+      function initTexture() {
+		for(var i=0; i<textureData.length; ++i){
+			textures[textureData[i]] = gl.createTexture(); //建立紋理物件並傳送給textures物件
+			textures[textureData[i]].image = new Image();
+
+			textures[textureData[i]].image.onload = (function (texture_name) {  //回呼函式(callback function)
+			  return ()=>handleLoadedTexture(textures[texture_name]);
+			})(textureData[i]);//將變數值鎖定，避免迴圈跑完後，Texture才讀取完畢而造成i跑掉的問題
+
+			textures[textureData[i]].image.src = textureData[i]+".jpg";
+		}
+		for(var i=0; i<alphaTextureData.length; ++i){
+			textures[alphaTextureData[i]] = gl.createTexture(); //建立紋理物件並傳送給textures物件
+			textures[alphaTextureData[i]].image = new Image();
+
+			textures[alphaTextureData[i]].image.onload = (function (texture_name) {  //回呼函式(callback function)
+			  return ()=>handleLoadedTexture(textures[texture_name]);
+			})(alphaTextureData[i]);//將變數值鎖定，避免迴圈跑完後，Texture才讀取完畢而造成i跑掉的問題
+
+			textures[alphaTextureData[i]].image.src = alphaTextureData[i]+".png";
+		}
+		for(var i=0; i<ringTextureData.length; ++i){
+			textures[ringTextureData[i]].ring = gl.createTexture(); //建立紋理物件並傳送給iglTexture
+			textures[ringTextureData[i]].ring.image = new Image();
+
+			textures[ringTextureData[i]].ring.image.onload = (function (texture_name) {  //回呼函式(callback function)
+			  return ()=>handleLoadedTexture(textures[texture_name].ring);
+			})(ringTextureData[i]);//將變數值鎖定，避免迴圈跑完後，Texture才讀取完畢而造成i跑掉的問題
+
+			textures[ringTextureData[i]].ring.image.src = ringTextureData[i]+"-rings.png";
+		}
+		for(var i=0; i<cloudTextureData.length; ++i){
+			textures[cloudTextureData[i]].cloud = gl.createTexture(); //建立紋理物件並傳送給iglTexture
+			textures[cloudTextureData[i]].cloud.image = new Image();
+
+			textures[cloudTextureData[i]].cloud.image.onload = (function (texture_name) {  //回呼函式(callback function)
+			  return ()=>handleLoadedTexture(textures[texture_name].cloud);
+			})(cloudTextureData[i]);//將變數值鎖定，避免迴圈跑完後，Texture才讀取完畢而造成i跑掉的問題
+
+			textures[cloudTextureData[i]].cloud.image.src = cloudTextureData[i]+"-clouds.png";
+		}
+      }
+	var zoom_val = 0.1;
+    var currentlyPressedKeys = {};
+
+    function handleKeyDown(event) {
+        currentlyPressedKeys[event.keyCode] = true;   //一個空物件類型
+    }
+
+
+    function handleKeyUp(event) {
+        currentlyPressedKeys[event.keyCode] = false;
+    }
+
+
+    function handleKeys() {
+
+      if (currentlyPressedKeys[90]){ //z
+	  		if(zoom_val<0.02)zoom_val=Math.abs(zoom_val)/0.9;
+			else if(zoom_val>10)zoom_val=Math.abs(zoom_val)*1.5;
+			else zoom_val +=0.01;
+	  }zoom_val
+  		if (currentlyPressedKeys[88]){ //x
+			if(zoom_val<0.02)zoom_val=Math.abs(zoom_val)*0.9;
+			else if(zoom_val>10)zoom_val=Math.abs(zoom_val)/1.5;
+			else zoom_val-=0.01;
+			zoom_val=Math.abs(zoom_val);
+		}
+		if(zoom_val<1e-10)zoom_val=1e-10;
+
+		//
+    }
+
+	var sol_m = 0;
+	var earth_self_rot = 0;
+	var earth_g_rot = 0;
+
+	var unit_time=0;
+	var AU=15;
+	var moonAU=AU*20;
+	var outerAU=AU*150;
+	var moonKM=0.00003;
+	var sizeKM=0.0005;
+	var synchronous=0;//潮汐鎖定
+
+	var year = unit_time;
+	var day = unit_time*365;
+	var hour = day*24;
+
+	var will_print=true;
+	var local_display_size=1;
+
+	var planet_s = 15;
+	var planet_ps = 0.2;
+	var moon_ps = 0.8;
+	var solar_speed = 15;
+
+	var local_position = {};
+	var old_scale=-1;
+
+	var blend_enable=true;
+	var milkyway_enable=true;
+	var constellation_line=false;
+
+	var useLighting=true;
+
+    var moonVertexPositionBuffer;
+    var moonVertexColorBuffer;
+	var moonVertexTexcoordBuffer;
+	var moonVertexNormalBuffer;
+    var moonVertexIndexBuffer;
+
+    var circleVertexPositionBuffer;
+    var circleVertexColorBuffer;
+	var circleVertexTexcoordBuffer;
+	var circleVertexNormalBuffer;
+    var circleVertexIndexBuffer;
+
+    var ringVertexPositionBuffer;
+    var ringVertexColorBuffer;
+	var ringVertexTexcoordBuffer;
+	var ringVertexNormalBuffer;
+    var ringVertexIndexBuffer;
+
+	var tempVertexPositionBuffer;
+    var tempVertexColorBuffer;
+	var tempVertexTexcoordBuffer;
+	var tempVertexNormalBuffer;
+    var tempVertexIndexBuffer;
+
+	function bindSphereBuffer(
+			cir_type, latitudeBands, longitudeBands, inner, color,
+			vertexPositionBuffer, vertexColorBuffer, vertexTexcoordBuffer, vertexNormalBuffer, vertexIndexBuffer
+		){
+		var radius = 2;
+
+		if(cir_type=='init'){
+			vertexPositionBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([]), gl.STATIC_DRAW);
+			vertexPositionBuffer.itemSize = 4;
+
+			vertexColorBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([]), gl.STATIC_DRAW);
+			vertexColorBuffer.itemSize = 4;
+
+			vertexTexcoordBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexTexcoordBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([]), gl.STATIC_DRAW);
+			vertexTexcoordBuffer.itemSize = 2;
+
+			vertexNormalBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([]), gl.STATIC_DRAW);
+			vertexNormalBuffer.itemSize = 3;
+
+			vertexIndexBuffer = gl.createBuffer();
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffer);
+			gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array([]), gl.STATIC_DRAW);
+			vertexIndexBuffer.itemSize = 1;
+			return {
+				Position:vertexPositionBuffer,
+				Color:vertexColorBuffer,
+				Texcoord:vertexTexcoordBuffer,
+				Normal:vertexNormalBuffer,
+				Index:vertexIndexBuffer
+			};
+		}else if(cir_type=='bind'){
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, vertexColorBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, vertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, vertexTexcoordBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexTexcoordAttribute, vertexTexcoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffer);
+			return;
+		}
+
+		vertexPositionBuffer.data=[];
+		vertexColorBuffer.data=[];
+		vertexTexcoordBuffer.data=[];
+		vertexNormalBuffer.data=[];
+		vertexIndexBuffer.data=[];
+
+        for (var latNumber=0; latNumber <= latitudeBands; latNumber++) {
+            var theta = latNumber * Math.PI / latitudeBands;
+            var sinTheta = Math.sin(theta);
+            var cosTheta = Math.cos(theta);
+
+            for (var longNumber=0; longNumber <= longitudeBands; longNumber++) {
+
+				if(cir_type=='sphere'){
+					var phi = longNumber * 2 * Math.PI / longitudeBands;
+					var sinPhi = Math.sin(phi);
+					var cosPhi = Math.cos(phi);
+
+					var x = cosPhi * sinTheta;
+					var y = cosTheta;
+					var z = sinPhi * sinTheta;
+					var u = 1-(longNumber / longitudeBands);
+					var v = 1-(latNumber / latitudeBands);
+
+					vertexColorBuffer.data.push(color[0]);//R
+					vertexColorBuffer.data.push(color[1]);//G
+					vertexColorBuffer.data.push(color[2]);//B
+					vertexColorBuffer.data.push(color[3]);//A
+
+					vertexTexcoordBuffer.data.push(u);
+					vertexTexcoordBuffer.data.push(v);
+
+					vertexNormalBuffer.data.push(x);
+					vertexNormalBuffer.data.push(y);
+					vertexNormalBuffer.data.push(z);
+
+					vertexPositionBuffer.data.push(radius * x);
+					vertexPositionBuffer.data.push(radius * y);
+					vertexPositionBuffer.data.push(radius * z);
+					vertexPositionBuffer.data.push(1.0);
+				} else if(cir_type=='circle'||cir_type=='ring'){
+					var phi = longNumber * 2 * Math.PI / longitudeBands;
+					var sinPhi = Math.sin(phi);
+					var cosPhi = Math.cos(phi);
+
+					var x = cosPhi;
+					var y = 0;
+					var z = sinPhi;
+					var u = latNumber;
+					var v = 1-(longNumber / longitudeBands);
+
+					if(latNumber==0){
+						if(cir_type=='circle'){
+
+							vertexColorBuffer.data.push(color[0]);//R
+							vertexColorBuffer.data.push(color[1]);//G
+							vertexColorBuffer.data.push(color[2]);//B
+							vertexColorBuffer.data.push(color[3]);//A
+
+							vertexTexcoordBuffer.data.push(u);
+							vertexTexcoordBuffer.data.push(v);
+
+							vertexNormalBuffer.data.push(0);
+							vertexNormalBuffer.data.push(1);
+							vertexNormalBuffer.data.push(0);
+
+							vertexPositionBuffer.data.push(radius * x);
+							vertexPositionBuffer.data.push(radius * y);
+							vertexPositionBuffer.data.push(radius * z);
+							vertexPositionBuffer.data.push(1.0);
+
+							vertexIndexBuffer.data.push(longNumber);
+							if(longNumber == longitudeBands)vertexIndexBuffer.data.push(0);
+							else vertexIndexBuffer.data.push(longNumber+1);
+						}else if(cir_type=='ring'){
+							vertexColorBuffer.data.push(color[0]);//R
+							vertexColorBuffer.data.push(color[1]);//G
+							vertexColorBuffer.data.push(color[2]);//B
+							vertexColorBuffer.data.push(color[3]);//A
+
+							vertexTexcoordBuffer.data.push(u);
+							vertexTexcoordBuffer.data.push(v);
+
+							vertexNormalBuffer.data.push(0);
+							vertexNormalBuffer.data.push(1);
+							vertexNormalBuffer.data.push(0);
+
+							vertexPositionBuffer.data.push(radius * x * inner);
+							vertexPositionBuffer.data.push(radius * y * inner);
+							vertexPositionBuffer.data.push(radius * z * inner);
+							vertexPositionBuffer.data.push(1.0);
+						}
+					}else if(latNumber==1){
+						if(cir_type=='ring'){
+							vertexColorBuffer.data.push(color[0]);//R
+							vertexColorBuffer.data.push(color[1]);//G
+							vertexColorBuffer.data.push(color[2]);//B
+							vertexColorBuffer.data.push(color[3]);//A
+
+							vertexTexcoordBuffer.data.push(u);
+							vertexTexcoordBuffer.data.push(v);
+
+							vertexNormalBuffer.data.push(0);
+							vertexNormalBuffer.data.push(1);
+							vertexNormalBuffer.data.push(0);
+
+							vertexPositionBuffer.data.push(radius * x);
+							vertexPositionBuffer.data.push(radius * y);
+							vertexPositionBuffer.data.push(radius * z);
+							vertexPositionBuffer.data.push(1.0);
+						}
+					}
+
+				}
+
+
+            }
+			if((cir_type=='circle'||cir_type=='ring') && latNumber>1)break;
+        }
+
+		if(cir_type=='sphere'||cir_type=='ring'){
+			for (var latNumber=0; latNumber < latitudeBands; latNumber++) {//形成方形
+				for (var longNumber=0; longNumber < longitudeBands; longNumber++) {
+					var first = (latNumber * (longitudeBands + 1)) + longNumber;
+					var second = first + longitudeBands + 1;
+
+					if(cir_type=='sphere'){
+						vertexIndexBuffer.data.push(first);
+						vertexIndexBuffer.data.push(second);
+						vertexIndexBuffer.data.push(first + 1);
+
+						vertexIndexBuffer.data.push(second);
+						vertexIndexBuffer.data.push(second + 1);
+						vertexIndexBuffer.data.push(first + 1);
+					}else if(cir_type=='ring'){
+						if(latNumber==0){
+							first = longNumber;
+							second = first + longitudeBands + 1;
+							vertexIndexBuffer.data.push(first);
+							vertexIndexBuffer.data.push(second);
+							vertexIndexBuffer.data.push(first + 1);
+
+							vertexIndexBuffer.data.push(second);
+							vertexIndexBuffer.data.push(second + 1);
+							vertexIndexBuffer.data.push(first + 1);
+						}
+					}
+				}
+				if((cir_type=='ring') && latNumber>1)break;
+			}
+		}
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPositionBuffer.data), gl.STATIC_DRAW);
+        vertexPositionBuffer.itemSize = 4;
+        vertexPositionBuffer.numItems = vertexPositionBuffer.data.length / 4;
+		gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, vertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexColorBuffer.data), gl.STATIC_DRAW);
+        vertexColorBuffer.itemSize = 4;
+        vertexColorBuffer.numItems = vertexColorBuffer.data.length / 4;
+		gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, vertexColorBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexNormalBuffer.data), gl.STATIC_DRAW);
+        vertexNormalBuffer.itemSize = 3;
+        vertexNormalBuffer.numItems = vertexNormalBuffer.data.length / 3;
+		gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, vertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexTexcoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexTexcoordBuffer.data), gl.STATIC_DRAW);
+        vertexTexcoordBuffer.itemSize = 2;
+        vertexTexcoordBuffer.numItems = vertexTexcoordBuffer.data.length / 2;
+		gl.vertexAttribPointer(shaderProgram.vertexTexcoordAttribute, vertexTexcoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, vertexIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(vertexIndexBuffer.data), gl.STATIC_DRAW);
+        vertexIndexBuffer.itemSize = 1;
+        vertexIndexBuffer.numItems = vertexIndexBuffer.data.length;
+
+	}
+
+    function initBuffers() {
+
+		var init_data = bindSphereBuffer(
+			'init', 30, 60, 0, [1,1,1,1],
+			moonVertexPositionBuffer, moonVertexColorBuffer, moonVertexTexcoordBuffer, moonVertexNormalBuffer, moonVertexIndexBuffer
+		);
+		moonVertexPositionBuffer=init_data.Position;
+		moonVertexColorBuffer=init_data.Color;
+		moonVertexTexcoordBuffer=init_data.Texcoord;
+		moonVertexNormalBuffer=init_data.Normal;
+		moonVertexIndexBuffer=init_data.Index;
+		bindSphereBuffer(
+			'sphere', 30, 60, 0, [1,1,1,1],
+			moonVertexPositionBuffer, moonVertexColorBuffer, moonVertexTexcoordBuffer, moonVertexNormalBuffer, moonVertexIndexBuffer
+		);
+
+
+		init_data = bindSphereBuffer(
+			'init', 128, 128, 0, [1,1,1,1],
+			circleVertexPositionBuffer, circleVertexColorBuffer, circleVertexTexcoordBuffer, circleVertexNormalBuffer, circleVertexIndexBuffer
+		);
+		circleVertexPositionBuffer=init_data.Position;
+		circleVertexColorBuffer=init_data.Color;
+		circleVertexTexcoordBuffer=init_data.Texcoord;
+		circleVertexNormalBuffer=init_data.Normal;
+		circleVertexIndexBuffer=init_data.Index;
+		bindSphereBuffer(
+			'circle', 128, 128, 0, [1,1,1,1],
+			circleVertexPositionBuffer, circleVertexColorBuffer, circleVertexTexcoordBuffer, circleVertexNormalBuffer, circleVertexIndexBuffer
+		);
+
+		init_data = bindSphereBuffer(
+			'init', 60, 60, 0.5, [1,1,1,1],
+			ringVertexPositionBuffer, ringVertexColorBuffer, ringVertexTexcoordBuffer, ringVertexNormalBuffer, ringVertexIndexBuffer
+		);
+		ringVertexPositionBuffer=init_data.Position;
+		ringVertexColorBuffer=init_data.Color;
+		ringVertexTexcoordBuffer=init_data.Texcoord;
+		ringVertexNormalBuffer=init_data.Normal;
+		ringVertexIndexBuffer=init_data.Index;
+		bindSphereBuffer(
+			'ring', 60, 60, 0.5, [1,1,1,1],
+			ringVertexPositionBuffer, ringVertexColorBuffer, ringVertexTexcoordBuffer, ringVertexNormalBuffer, ringVertexIndexBuffer
+		);
+
+        tempVertexPositionBuffer = gl.createBuffer();
+		tempVertexPositionBuffer.bufferdata=[];
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexPositionBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexPositionBuffer.itemSize = 4;
+        tempVertexPositionBuffer.numItems = tempVertexPositionBuffer.bufferdata.length / 4;
+
+        tempVertexColorBuffer = gl.createBuffer();
+		tempVertexColorBuffer.bufferdata=[];
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexColorBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexColorBuffer.itemSize = 4;
+        tempVertexColorBuffer.numItems = tempVertexColorBuffer.bufferdata.length / 4;
+
+        tempVertexNormalBuffer = gl.createBuffer();
+		tempVertexNormalBuffer.bufferdata=[];
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexNormalBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexNormalBuffer.itemSize = 3;
+        tempVertexNormalBuffer.numItems = tempVertexNormalBuffer.bufferdata.length / 3;
+
+		tempVertexTexcoordBuffer = gl.createBuffer();
+		tempVertexTexcoordBuffer.bufferdata=[];
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexTexcoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexTexcoordBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexTexcoordBuffer.itemSize = 2;
+        tempVertexTexcoordBuffer.numItems = tempVertexTexcoordBuffer.bufferdata.length / 2;
+
+        tempVertexIndexBuffer = gl.createBuffer();
+		tempVertexIndexBuffer.bufferdata=[];
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempVertexIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tempVertexIndexBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexIndexBuffer.itemSize = 1;
+        tempVertexIndexBuffer.numItems = tempVertexIndexBuffer.bufferdata.length;
+
+        initMatrix();
+    }
+	function drawQuad(rad){
+		tempVertexPositionBuffer.bufferdata=[
+			-1.0,0,-1.0,1.0,
+			1.0,0,-1.0,1.0,
+			1.0,0,1.0,1.0,
+			-1.0,0,1.0,1.0,
+		];
+		tempVertexColorBuffer.bufferdata=[
+			1.0,1.0,1.0,1.0,
+			1.0,1.0,1.0,1.0,
+			1.0,1.0,1.0,1.0,
+			1.0,1.0,1.0,1.0,
+		];
+		tempVertexNormalBuffer.bufferdata=[
+			0.0,1.0,0.0,
+			0.0,1.0,0.0,
+			0.0,1.0,0.0,
+			0.0,1.0,0.0,
+		];
+		tempVertexTexcoordBuffer.bufferdata=[
+			0.0,0.0,
+			1.0,0.0,
+			1.0,1.0,
+			0.0,1.0,
+		];
+		tempVertexIndexBuffer.bufferdata=[
+			0,1,2,
+			0,2,3,
+		];
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexPositionBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexPositionBuffer.numItems = tempVertexPositionBuffer.bufferdata.length / 4;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexColorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexColorBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexColorBuffer.numItems = tempVertexColorBuffer.bufferdata.length / 4;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexNormalBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexNormalBuffer.numItems = tempVertexNormalBuffer.bufferdata.length / 3;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexTexcoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(tempVertexTexcoordBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexTexcoordBuffer.numItems = tempVertexTexcoordBuffer.bufferdata.length / 2;
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempVertexIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(tempVertexIndexBuffer.bufferdata), gl.STATIC_DRAW);
+        tempVertexIndexBuffer.numItems = tempVertexIndexBuffer.bufferdata.length;
+
+		PushMatrix("model");
+		PushMatrix("texture");
+			mat4.scale(TopMatrix("model"), [rad, rad, rad]);
+			gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexPositionBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, tempVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexColorBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexColorAttribute, tempVertexColorBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexTexcoordBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexTexcoordAttribute, tempVertexTexcoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ARRAY_BUFFER, tempVertexTexcoordBuffer);
+			gl.vertexAttribPointer(shaderProgram.vertexTexcoordAttribute, tempVertexTexcoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+			gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, tempVertexIndexBuffer);
+
+			setMatrixUniforms();
+			gl.drawElements(gl.TRIANGLES, tempVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+		PopMatrix("texture");
+		PopMatrix("model");
+	}
+	function drawCircle(rad) {
+		PushMatrix("model");
+		PushMatrix("texture");
+			mat4.scale(TopMatrix("model"), [rad*0.5, rad*0.5, rad*0.5]);
+			bindSphereBuffer(
+				'bind', null, null, null, null,
+				circleVertexPositionBuffer, circleVertexColorBuffer, circleVertexTexcoordBuffer, circleVertexNormalBuffer, circleVertexIndexBuffer
+			);
+			mat4.identity(TopMatrix("texture"));
+
+
+			setMatrixUniforms();
+			gl.drawElements(gl.LINES, circleVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+		PopMatrix("texture");
+		PopMatrix("model");
+	}
+
+	function drawOrbit(rad) {
+		if(!document.getElementById('OrbitOn').checked)return;
+		gl.activeTexture(gl.TEXTURE0);    //載入的圖層為0號圖層
+		gl.bindTexture(gl.TEXTURE_2D, textures.sol);
+		gl.uniform1i(shaderProgram.samplerUniform, 0);
+		gl.uniform1b(shaderProgram.useLightingUniform, false);
+		drawCircle(rad);
+		gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+	}
+
+	function drawRing(planet_texture) {
+		PushMatrix("model");
+		PushMatrix("texture");
+			bindSphereBuffer(
+				'bind', null, null, null, null,
+				ringVertexPositionBuffer, ringVertexColorBuffer, ringVertexTexcoordBuffer, ringVertexNormalBuffer, ringVertexIndexBuffer
+			);
+
+			gl.activeTexture(gl.TEXTURE0);    //載入的圖層為0號圖層
+			mat4.identity(TopMatrix("texture"));
+
+			gl.bindTexture(gl.TEXTURE_2D, planet_texture.ring);
+			gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+			setMatrixUniforms();
+			gl.uniform1b(shaderProgram.useLightingUniform, false);
+			gl.drawElements(gl.TRIANGLES, ringVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+			gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+		PopMatrix("texture");
+		PopMatrix("model");
+	}
+
+	function drawPlanet(planet_texture) {
+		PushMatrix("model");
+		PushMatrix("texture");
+
+			if(planet_texture!=null)if(planet_texture.ring!=null){
+				PushMatrix("model");
+					mat4.scale(TopMatrix("model"), planet_texture.ring.scale);
+					drawRing(planet_texture);
+				PopMatrix("model");
+			}
+
+			bindSphereBuffer(
+				'bind', null, null, null, null,
+				moonVertexPositionBuffer, moonVertexColorBuffer, moonVertexTexcoordBuffer, moonVertexNormalBuffer, moonVertexIndexBuffer
+			);
+
+			gl.activeTexture(gl.TEXTURE0);    //載入的圖層為0號圖層
+			mat4.identity(TopMatrix("texture"));
+			mat4.scale(TopMatrix("texture"), [1, -1, 1]);
+
+			if(planet_texture)gl.bindTexture(gl.TEXTURE_2D, planet_texture);
+			gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+			setMatrixUniforms();
+			gl.drawElements(gl.TRIANGLES, moonVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+		PopMatrix("texture");
+		PopMatrix("model");
+	}
+
+	function save_coord(matrix){
+		var result={x:matrix[12],y:matrix[13],z:matrix[14],inv:mat4.create()}
+		if(document.getElementById('OrbitCoord').checked)mat4.inverse(matrix,result.inv);
+		return result;
+	}
+
+	function orbitRotation(matrix,
+		orbit_e,//軌道離心率
+		Inclination,//軌道傾角
+		LongitudeAscendingNode,//
+		semiMajorAxis,//半長軸
+		LongOfPericenter,//
+		MeanLongitude,//
+		orbit_rot,//軌道進動
+		orbit_loc,//公轉位置
+		calc_only){
+			var orbit_a = 1;
+			var orbit_b = Math.sqrt(1-orbit_e*orbit_e);
+			var meanAnomaly=MeanLongitude-LongOfPericenter;
+
+			//軌道傾角 Inclination
+			mat4.rotate(matrix, degToRad(Inclination), [1, 0, 0]);
+
+			//升交點黃經 Longitude of ascending node
+			mat4.rotate(matrix, degToRad(LongitudeAscendingNode), [0, 1, 0]);
+
+			//軌道進動
+			mat4.rotate(matrix, degToRad(orbit_rot), [0, 1, 0]);
+
+			//軌道離心率(橢圓)
+			mat4.scale(matrix, [orbit_a, 1, orbit_b]);
+
+			//軌道離心率(焦距)
+			mat4.translate(matrix, [-semiMajorAxis*orbit_e, 0, 0]);
+
+			//平近點角 (mean Anomaly)
+			mat4.rotate(matrix, degToRad(meanAnomaly), [0, 1, 0]);
+
+			if(!calc_only)drawOrbit(semiMajorAxis);
+
+			var now_angle = (orbit_loc);
+			var now_angle_c = now_angle;
+			if(now_angle_c<0)now_angle_c += Math.ceil(2+Math.abs(now_angle_c)/360)*360;
+			if(now_angle_c>360)now_angle_c -= Math.floor(Math.abs(now_angle_c)/360)*360;
+			var eclipse_offset = Math.sin(degToRad(now_angle_c-45))-1;
+
+			var now_rotate_angle=(orbit_loc)+orbit_e*45*eclipse_offset;
+
+			mat4.rotate(matrix, degToRad(now_rotate_angle), [0, 1, 0]);//公轉
+			mat4.translate(matrix, [semiMajorAxis, 0, 0]);
+
+			//抵銷軌道離心率(橢圓)時的縮放影響
+			mat4.rotate(matrix, -degToRad(now_rotate_angle), [0, 1, 0]);
+			mat4.scale(matrix, [1/orbit_a, 1, 1/orbit_b]);
+			mat4.rotate(matrix, degToRad(now_rotate_angle), [0, 1, 0]);
+
+
+	}
+
+	function getPointSize(pt){
+		var set_scale = local_display_size*pt*600/gl.viewportHeight;
+		return [set_scale*0.001/zoom_val, set_scale*0.001/zoom_val, set_scale*0.001/zoom_val];
+	}
+
+
+	function drawPlanets(planet_list,planet_name,calc_only){
+		PushMatrix("model");
+			var planet_data=planet_list[planet_name];
+			var Revolution = eval(planet_data.Position);
+			orbitRotation(TopMatrix("model"),
+				eval(planet_data.Eccentricity),//軌道離心率
+				eval(planet_data.Inclination),//軌道傾角
+				eval(planet_data.LongitudeAscendingNode),
+				eval(planet_data.semiMajorAxis),//半長軸
+				eval(planet_data.LongOfPericenter),
+				eval(planet_data.MeanLongitude),
+				eval(planet_data.ApsidalPrecession),//軌道進動
+				Revolution,//公轉位置
+			calc_only);
+
+			if(planet_data.Sidereal!='synchronous')mat4.rotate(TopMatrix("model"), degToRad(-Revolution), [0, 1, 0]);//抵銷公轉
+
+			PushMatrix("model");
+				var Sidereal = eval(planet_data.Sidereal);
+
+				if(planet_data.RefAxis!=null){
+					var RefAxis_obj = eval(planet_data.RefAxis);
+					mat4.rotate(TopMatrix("model"), degToRad(eval(RefAxis_obj.x)), [1, 0, 0]);
+					mat4.rotate(TopMatrix("model"), degToRad(eval(RefAxis_obj.y)), [0, 1, 0]);
+					mat4.rotate(TopMatrix("model"), degToRad(eval(RefAxis_obj.z)), [0, 0, 1]);
+				}
+				mat4.rotate(TopMatrix("model"), degToRad(eval(planet_data.AxialTilt)), [1, 0, 0]);
+				if(planet_data.Sidereal!='synchronous'){
+					mat4.rotate(TopMatrix("model"), degToRad(Sidereal), [0, 1, 0]);
+				}else{
+					Sidereal=Revolution;
+				}
+				local_position[planet_name]=save_coord(TopMatrix("model"));
+
+				if(!calc_only && planet_data.sizeVec != NODATA){
+					mat4.scale(TopMatrix("model"), eval(planet_data.sizeVec));
+
+					var texture_data_item = textures[planet_name];
+					if(planet_data.sp_texture!=null){
+						texture_data_item=textures[planet_data.sp_texture];
+					}
+
+					if(planet_data.type=='star')gl.uniform1b(shaderProgram.useLightingUniform, false);
+					else gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+
+					if(mat4.determinant(mat3.toMat4(mat4.toMat3(TopMatrix('modelview')))) < 1e-7){
+						PushMatrix("model");
+							mat4.identity(TopMatrix("model"));
+							mat4.translate(TopMatrix("model"), [
+								local_position[planet_name].x, local_position[planet_name].y, local_position[planet_name].z
+							]);
+							var planet_point_size = 0;
+							if(planet_data.type=='dwarfPlanet' || planet_data.type=='planet')planet_point_size=6;
+							if(planet_data.type=='moon')planet_point_size=4;
+
+							if(planet_point_size>0){
+								mat4.scale(TopMatrix("model"), getPointSize(planet_point_size));
+								gl.uniform1b(shaderProgram.useLightingUniform, false);
+								drawPlanet(texture_data_item);
+								gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+							}
+						PopMatrix("model");
+					}
+
+
+					if(texture_data_item!=null){
+						drawPlanet(texture_data_item);
+
+						if(texture_data_item.cloud){
+							mat4.rotate(TopMatrix("model"), degToRad(Sidereal*0.25), [0, 1, 0]);
+							mat4.scale(TopMatrix("model"), [1.05,1.05,1.05]);
+							drawPlanet(texture_data_item.cloud);
+						}
+					}
+
+
+				}
+
+			PopMatrix("model");
+
+			for(var it=0; it<planet_data.child.length; ++it){
+				drawPlanets(planet_list,planet_data.child[it],calc_only);
+			}
+
+		PopMatrix("model");
+	}
+
+	function drawTest(){
+		var rot = earth_g_rot*solar_speed;
+
+		year = unit_time;
+		day = unit_time*365;
+		hour = day*24;
+
+		var loc_select = document.getElementById("locatePlanet").value;
+
+		PushMatrix("model");
+			if(loc_select!='milkyway'){//不同步的世界原點(原值太大 浮點數會有運算誤差，容易出問題)
+				mat4.rotate(TopMatrix("model"), degToRad(year/24000), [0, 1, 0]);
+				mat4.translate(TopMatrix("model"), [-AU*0.4*100000000, 0, 0]);
+			}
+			local_position.milkyway=save_coord(TopMatrix("model"));
+			if(zoom_val<=0.00001 && milkyway_enable){//Level of detail : 當檢視範圍為銀河系時，才畫出銀河系
+				mat4.rotate(TopMatrix("model"), degToRad(-90), [0, 1, 0]);
+				gl.activeTexture(gl.TEXTURE0);    //載入的圖層為0號圖層
+				gl.bindTexture(gl.TEXTURE_2D, textures.milkyway);
+				gl.uniform1i(shaderProgram.samplerUniform, 0);
+				mat4.identity(TopMatrix("texture"));
+				gl.disable(gl.DEPTH_TEST);
+				gl.uniform1b(shaderProgram.useLightingUniform, false);
+				drawQuad(AU*100000000);
+				gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+				gl.enable(gl.DEPTH_TEST);
+			}
+		PopMatrix("model");
+
+		if(loc_select=='milkyway'){//不同步的世界原點(原值太大 浮點數會有運算誤差，容易出問題)
+			mat4.translate(TopMatrix("model"), [AU*0.4*100000000, 0, 0]);
+		}
+
+		mat4.rotate(TopMatrix("model"), degToRad(53), [1, 0, 0]);//銀河-太陽平面
+		if(zoom_val<=0.00001){//Level of detail : 當檢視範圍為銀河系時，太陽系變為一個點
+			drawPlanets(selectSolarSystemData,'sun',true);
+			PushMatrix("model");
+				mat4.identity(TopMatrix("model"));
+				mat4.translate(TopMatrix("model"),
+				[
+					local_position.sun.x,
+					local_position.sun.y,
+					local_position.sun.z
+				]);
+				mat4.scale(TopMatrix("model"), getPointSize(12));
+				drawPlanet(textures.sol);
+			PopMatrix("model");
+		}else{
+			textures.saturn.ring.scale=[2.5,2.5,2.5];
+			textures.uranus.ring.scale=[3,3,3];
+			textures.neptune.ring.scale=[4,4,4];
+			drawPlanets(selectSolarSystemData,'sun',false);
+
+			mat4.rotate(TopMatrix("model"), degToRad(8), [1, 0, 0]);
+
+			mat4.rotate(TopMatrix("model"), degToRad(year/4.60), [0, 1, 0]);
+			mat4.identity(TopMatrix("texture"));
+			gl.activeTexture(gl.TEXTURE0);    //載入的圖層為0號圖層
+			gl.bindTexture(gl.TEXTURE_2D, textures.asteroidbelt);
+			gl.uniform1i(shaderProgram.samplerUniform, 0);
+			gl.uniform1b(shaderProgram.useLightingUniform, false);
+			drawQuad(AU*6.2);
+			gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+		}
+
+	}
+
+
+
+    function drawScene() {
+
+
+
+		moon_ps = document.getElementById('moonsize').value/10;
+
+	 blend_enable=document.getElementById('BlendTest').checked;
+	milkyway_enable=document.getElementById('milkyway').checked;
+	constellation_line=document.getElementById('Constellation').checked;
+	gl.uniform1i(shaderProgram.AlphaTestUniform, document.getElementById('AlphaTest').checked?1:0);
+
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+      var aspect = gl.viewportWidth / gl.viewportHeight;
+      var fovy = 45.0;
+      var zNear = 0.1;
+      var zFar = 1000.0;
+      mat4.perspective(fovy, aspect, zNear, zFar, TopMatrix("projection"));
+
+        mat4.identity(TopMatrix("view"));
+        mat4.translate(TopMatrix("view"), [0, 0, -6]);
+
+		var loc_select = document.getElementById("locatePlanet").value;
+		if(selectSolarSystemData[loc_select]){
+			if(selectSolarSystemData[loc_select].size){
+				local_display_size=eval(selectSolarSystemData[loc_select].size);
+				if(local_display_size == null)local_display_size=1;
+				else{
+					if(old_scale<0){
+						if(loc_select=='milkyway'){
+							old_scale=zoom_val;
+							zoom_val=5e-10;
+						}
+					}else{
+						if(loc_select!='milkyway'){
+							zoom_val=old_scale;
+							old_scale=-1;
+						}
+					}
+					local_display_size*=0.2;
+				}
+				if(loc_select=='ref')zoom_val = 0.1;
+			}
+		}
+		mat4.scale(TopMatrix("view"), [zoom_val/local_display_size, zoom_val/local_display_size, zoom_val/local_display_size]);
+
+		mat4.multiply(TopMatrix("view"), moonRotationMatrix);
+
+
+		if(local_position[loc_select]){
+
+			if(document.getElementById('OrbitCoord').checked){
+				mat4.multiply(TopMatrix("view"), local_position[loc_select].inv);
+			}else{
+				mat4.translate(TopMatrix("view"),
+				[
+					-local_position[loc_select].x,
+					-local_position[loc_select].y,
+					-local_position[loc_select].z
+				]);
+			}
+		}
+
+		var view_matrix=TopMatrix("view");
+		gl.uniform3fv(shaderProgram.cameraPositionUniform, [0,0,0]);
+
+
+
+		//////攝影機設定完畢/////
+
+		useLighting = document.getElementById("lighting").checked;
+		gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+		 if (useLighting) {
+            light_sources[0].position = [
+              0.0,
+              0.0,
+              0.0,
+              1.0
+            ];
+
+            light_sources[0].diffuse = [
+              1.0,
+              1.0,
+              1.0,
+              1.0
+            ];
+            light_sources[0].ambient = [
+              0.1,
+              0.1,
+              0.0,
+              1.0
+            ];
+            light_sources[0].specular = [
+              0.5,
+              0.5,
+              0.5,
+              1.0
+            ];
+            UpdateLighting();
+          }
+		UpdateMaterial(front_material);
+
+        mat4.identity(TopMatrix("model"));
+
+
+		solar_speed = parseFloat(document.getElementById('OrbitSpeed').value) || 15;
+
+		if(zoom_val>0.00001 && milkyway_enable){
+			PushMatrix("model");
+				mat4.identity(TopMatrix("model"));
+				var inv_view = mat4.create();
+				mat4.inverse(TopMatrix("view"), inv_view);
+				mat4.set(inv_view, TopMatrix("model"));
+				mat4.scale(TopMatrix("model"), [
+				   aspect * zFar * Math.tan(degToRad(fovy) * 0.5),
+				   zFar * Math.tan(degToRad(fovy) * 0.5),
+				1.0]);
+				mat4.translate(TopMatrix("model"), [0.0, 0.0, -zFar+0.01*zFar]);
+				mat4.rotate(TopMatrix("model"), degToRad(90), [1, 0, 0]);
+
+				gl.uniformMatrix4fv(shaderProgram.inverseViewMatrixUniform, false, inv_view);
+				gl.uniform1i(shaderProgram.sphereSamplingUniform, true);
+					PushMatrix("texture");gl.disable(gl.DEPTH_TEST);
+						mat4.identity(TopMatrix("texture"));
+						mat4.rotate(TopMatrix("texture"), degToRad(year/24000), [0, 1, 0]);
+						gl.bindTexture(gl.TEXTURE_2D, textures.astronomersu);
+						gl.uniform1b(shaderProgram.useLightingUniform, false);
+						drawQuad(1);
+						if(constellation_line){
+							gl.enable(gl.BLEND);
+								gl.bindTexture(gl.TEXTURE_2D, textures.constellation);
+								gl.uniform1b(shaderProgram.useLightingUniform, false);
+								drawQuad(1);
+							gl.disable(gl.BLEND);
+						}
+						gl.uniform1b(shaderProgram.useLightingUniform, useLighting);
+					PopMatrix("texture");gl.enable(gl.DEPTH_TEST);
+				gl.uniform1i(shaderProgram.sphereSamplingUniform, false);
+			PopMatrix("model");
+		}
+
+
+		local_position.ref=save_coord(TopMatrix("model"));
+		//參考坐標系 為原點
+		//世界坐標系 為銀河系中心
+
+		if(loc_select=='milkyway'){//不同步的世界原點(原值太大 容易出問題)
+			mat4.translate(TopMatrix("model"), [-AU*0.4*100000000, 0, 0]);
+			mat4.rotate(TopMatrix("model"), -degToRad(year/24000), [0, 1, 0]);
+		}
+
+		gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        if(blend_enable)gl.enable(gl.BLEND);
+		drawTest();
+		gl.disable(gl.BLEND);
+
+
+    }
+
+
+    var lastTime = 0;
+
+    function animate() {
+      var timeNow = new Date().getTime();
+      if (lastTime != 0) {
+        var elapsed = timeNow - lastTime;
+			if(!document.getElementById('stopC').checked){
+				unit_time += (solar_speed * elapsed) / 1000.0;
+			    sol_m += (10 * elapsed) / 1000.0;
+				earth_g_rot += (1 * elapsed) / 1000.0;
+				earth_self_rot += (365.256363004 * elapsed) / 1000.0;
+			}
+      }
+      lastTime = timeNow;
+    }
+
+	var setup_select_locate=false;
+    function tick() {
+        requestAnimFrame(tick);
+		handleKeys();
+		animate();
+        drawScene();
+		if(!setup_select_locate){
+			var locate_select = document.getElementById("locatePlanet");
+			Object.keys(local_position).map(function(objectKey, index) {
+				var value = local_position[objectKey];
+				if(value.x != null){
+					var dest = selectSolarSystemData[objectKey];
+					if(dest==null)dest=objectKey;
+					else dest=dest.dest;
+
+					if(dest!=null){
+						var loc_option = document.createElement("option");
+						loc_option.value=objectKey;
+						loc_option.innerHTML=dest;
+						locate_select.appendChild(loc_option);
+					}
+				}
+			});
+			setup_select_locate=true;
+		}
+    }
+
+	function resize(gl) {
+				gl.canvas.width = window.innerWidth;
+				gl.canvas.height = window.innerHeight * 0.8;
+	  gl.viewportWidth = gl.canvas.clientWidth;
+	  gl.viewportHeight = gl.canvas.clientHeight;
+	}
+
+
+    function webGLStart() {
+        var canvas = document.getElementById("lesson11-canvas");
+		;
+
+        initGL(canvas);
+        initShaders();
+        initBuffers();
+		initTexture();
+        initMaterial();
+        initLighting();
+
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+
+		canvas.onmousedown = (e=>mousedown('mouse',e));
+		document.onmousemove = (e=>mousemove('mouse',e));
+		document.onmouseup = onmouseup;
+		canvas.addEventListener('touchstart', e=>mousedown('touch',e));
+		canvas.addEventListener('touchmove', e=>mousemove('touch',e));
+
+		document.onkeydown = handleKeyDown;   //按鍵壓下
+        document.onkeyup = handleKeyUp;   //放開此按鍵
+		resize(gl);
+		window.addEventListener('resize', function(){resize(gl);});
+        tick();
+
+    }
+
+</script>
+
+<script type="text/javascript" src="solarsys_data.js"></script>
+</head>
+
+
+<body onload="webGLStart();">
+	<input type="checkbox" id="OrbitOn" checked />顯示軌道；
+	<input type="checkbox" id="stopC" />暫停<br/>
+	<input id="OrbitSpeed" type="number" placeholder="公轉速度控制" value="1" /><br/>
+	<select name="locatePlanet" id="locatePlanet"><select>
+	<input type="checkbox" id="OrbitCoord" />直接進入選定天體的在地坐標系；<label id="detsize">0</label><br/>
+
+	  <input type="range" id="moonsize" name="moonsize"
+         min="1" max="100" value="5">
+  <label for="volume">Moon Size</label><br/>
+
+	<input type="checkbox" id="AlphaTest" checked />Alpha Test；
+	<input type="checkbox" id="BlendTest" checked />Blend；
+	<input type="checkbox" id="milkyway" checked />繪製銀河系；
+	<input type="checkbox" id="Constellation" />星座連線；<br/>
+<input type="checkbox" id="lighting" checked /> Use lighting<br/>
+    <canvas id="lesson11-canvas" style="border: none;"></canvas>
+
+
+        <h2>Use mouse to interact</h2>
+
+        <br/>
+</body>
+
+</html>
