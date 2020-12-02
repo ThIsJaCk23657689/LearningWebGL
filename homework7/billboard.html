@@ -167,7 +167,7 @@
             };
             tree_generator.location = {
                 x: {min: -30, max: 30},
-                y: {min: 1.0, max: 1.0},
+                y: {min: 0, max: 0.1},
                 z: {min: -60, max: 60}
             };
             let global_alpha = 1.0;
@@ -618,8 +618,13 @@
                 popMatrix('model');
             }
 
+            function updateBillboardVertices(){
+                gl.bindBuffer(gl.ARRAY_BUFFER, plane.vbo);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(plane.vertices), gl.STATIC_DRAW);
+            }
+
             // 繪製 bildboard面版 參數（位置, 寬, 高, 方法, 透明度, 混和標籤）
-            function drawPlane(location, size, method = 0, alpha = 0.8, blend = false, yfixed = false){
+            function drawPlane(location, size_w, size_h, method = 0, alpha = 0.8, blend = false){
 
                 let view_model = mat4.multiply(mat4.create(), topMatrix("view"), topMatrix("model"));
 
@@ -628,22 +633,37 @@
                 let billboard_z = vec4.set(vec4.create(), view_model[2], view_model[6], view_model[10], view_model[14]);
 
                 if(method == 1){
-                    billboard_worldUp = vec4.set(vec4.create(), view_model[1], view_model[5], view_model[9], view_model[13]);
+                    billboard_y = vec4.set(vec4.create(), view_model[1], view_model[5], view_model[9], view_model[13]);
                     billboard_x = vec4.set(vec4.create(), view_model[0], view_model[4], view_model[8], view_model[12]);
                 } else {
-                    billboard_worldUp = vec4.set(vec4.create(), 0, 1, 0, 0);
-                    billboard_x = vec4.normalize(vec4.create(), vec4.multiply(vec4.create(), billboard_worldUp, billboard_z));
+                    billboard_y = vec4.set(vec4.create(), 0, 1, 0, 0);
+                    // billboard_x = vec4.normalize(vec4.create(), vec4.multiply(vec4.create(), billboard_y, billboard_z));
+                    billboard_x = vec4.set(vec4.create(), billboard_z[2], 0, -billboard_z[0], 0);
                 }
 
-                //  先取得攝影機到物體的向量
-                let viewToFrag = vec3.normalize(vec3.create(), vec3.subtract(vec3.create(), location, camera.position));
+                let v0 = vec4.set(vec4.create(), 
+                    location[0] - (size_w * billboard_x[0] / 2.0), 
+                    location[1] - (size_w * billboard_x[1] / 2.0), 
+                    location[2] - (size_w * billboard_x[2] / 2.0), 
+                    1.0
+                );
 
-                // 將物體的正面，投影到 x 軸
-                let fragFront = vec3.normalize(vec3.create(), vec3.set(vec3.create(), 0, 0, viewToFrag[2]));
+                let v1 = vec4.set(vec4.create(), 
+                    location[0] + (size_w * billboard_x[0] / 2.0), 
+                    location[1] + (size_w * billboard_x[1] / 2.0), 
+                    location[2] + (size_w * billboard_x[2] / 2.0), 
+                    1.0
+                );
 
-                // 求出角度兩向量之夾角
-                let angle_x = vec3.dot(fragFront, viewToFrag);
-                angle_x = Math.acos(angle_x);
+                plane.vertices = [
+                    // Vertex           // Texture Coord           
+                    v0[0], v0[1], v0[2],   0.0, 0.0,
+                    v1[0], v1[1], v1[2],   1.0, 0.0, 
+                    v1[0] + billboard_y[0] * size_h,  v1[1] + billboard_y[1] * size_h,  v1[2] + billboard_y[2] * size_h,   1.0, 1.0,
+                    v0[0] + billboard_y[0] * size_h,  v0[1] + billboard_y[1] * size_h,  v0[2] + billboard_y[2] * size_h,   0.0, 1.0,
+                ];
+
+                updateBillboardVertices();
 
                 // 設定透明度
                 global_alpha = alpha;
@@ -655,14 +675,6 @@
                 }
             
                 pushMatrix('model');
-                    if(yfixed == true) {
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [location[0] , location[1] * size, location[2]]);
-                    }else {
-                        mat4.translate(topMatrix('model'), topMatrix('model'), location);
-                    }
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), angle_x, [0.0, 1.0, 0.0]);
-                    mat4.scale(topMatrix('model'), topMatrix('model'), [size, size, 1.0]);
-
                     gl.bindBuffer(gl.ARRAY_BUFFER, plane.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, plane.ebo);
                     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 5 * Float32Array.BYTES_PER_ELEMENT, 0);
@@ -682,13 +694,13 @@
             function drawCloud(cloud){
                 gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, cloud_generator.textures[cloud.textureNum]);
-                drawPlane(cloud.location, cloud.size, 1, 0.8, true);
+                drawPlane(cloud.location, cloud.size, cloud.size, 1, 0.8, true);
             }
 
             function drawTree(tree){
                 gl.activeTexture(gl.TEXTURE0);
                 gl.bindTexture(gl.TEXTURE_2D, tree_generator.textures[tree.textureNum]);
-                drawPlane(tree.location, tree.size, 0, 0.99, false, true);
+                drawPlane(tree.location, tree.size, tree.size, 0, 0.99, false);
             }
 
             function drawScene() {
