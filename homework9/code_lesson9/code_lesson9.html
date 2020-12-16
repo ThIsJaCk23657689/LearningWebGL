@@ -8,56 +8,90 @@
 <script type="text/javascript" src="../../GLjs/webgl-utils.js"></script>
 
 <script id="shader-header" type="x-shader/x-header">
-  #define MAX_LIGHT 4
-  #define M_PI 3.1415926535897932384626433832795
-  #extension GL_EXT_shader_texture_lod : enable
-  #extension GL_OES_standard_derivatives : enable
-  precision mediump float;
-  struct glLight {//don't use gl_light
-    vec4 position;
-    vec4 direction;
-    vec4 ambient;
-    vec4 diffuse;
-    vec4 specular;
-    float spotCutOff;
-    float constantAttenuation;
-    float linearAttenuation;
-    float quadraticAttenuation;
-    float spotExponent;
-    bool enable;
-  };
-  struct glMaterial {//don't use gl_Material
-    vec4 ambient;
-    vec4 diffuse;
-    vec4 specular;
-    vec4 emission;
-    float shiness;
-  };
-  bool isZero(float number){
-    return abs(number) <= 1e-3;
-  }
-  mat3 transpose(in mat3 inMatrix)
-  {
-      vec3 i0 = inMatrix[0];
-      vec3 i1 = inMatrix[1];
-      vec3 i2 = inMatrix[2];
+	#define MAX_LIGHT 4
+	#define M_PI 3.1415926535897932384626433832795
+	#extension GL_EXT_shader_texture_lod : enable
+	#extension GL_OES_standard_derivatives : enable
+	precision mediump float;
 
-      mat3 outMatrix = mat3(
-          vec3(i0.x, i1.x, i2.x),
-          vec3(i0.y, i1.y, i2.y),
-          vec3(i0.z, i1.z, i2.z)
-      );
+	// Don't use gl_light
+	struct glLight {
+		vec4 position;
+		vec4 direction;
+		vec4 ambient;
+		vec4 diffuse;
+		vec4 specular;
+		float spotCutOff;
+		float constantAttenuation;
+		float linearAttenuation;
+		float quadraticAttenuation;
+		float spotExponent;
+		bool enable;
+	};
 
-      return outMatrix;
-  }
+	// Don't use gl_Material
+	struct glMaterial {
+		vec4 ambient;
+		vec4 diffuse;
+		vec4 specular;
+		vec4 emission;
+		float shiness;
+	};
+
+	bool isZero(float number) {
+		return abs(number) <= 1e-3;
+	}
+
+	mat3 transpose(in mat3 inMatrix) {
+		vec3 i0 = inMatrix[0];
+		vec3 i1 = inMatrix[1];
+		vec3 i2 = inMatrix[2];
+
+		mat3 outMatrix = mat3(
+			vec3(i0.x, i1.x, i2.x),
+			vec3(i0.y, i1.y, i2.y),
+			vec3(i0.z, i1.z, i2.z)
+		);
+
+		return outMatrix;
+	}
+</script>
+
+<script id="shader-vs" type="x-shader/x-vertex">
+	attribute vec3 aVertexPosition;
+	attribute vec3 aVertexNormal;
+	attribute vec2 aTextureCoord;
+
+	uniform mat4 model;
+	uniform mat4 view;
+	uniform mat4 projection;
+	uniform mat3 normalModel;
+
+	varying vec2 Texcoord;
+
+	// 法向量線性內插
+	varying vec3 Normal;
+
+	// 眼睛相對點的向量線性內插
+	varying vec3 vEye;
+
+	void main(void) {
+		// Local variable; ModelViewMatrix; Model Matrix 和 View Matrix 之積 (後乘法)
+		mat4 ModelViewMatrix = view * model;
+		
+		Texcoord = aTextureCoord;
+		Normal = normalize(normalModel * aVertexNormal);
+		gl_Position = projection * ModelViewMatrix * vec4(aVertexPosition, 1.0);
+	
+		vec4 eyePosition = ModelViewMatrix * vec4(aVertexPosition, 1.0);
+		vEye = -eyePosition.xyz;
+	}
 </script>
 
 <script id="shader-fs" type="x-shader/x-fragment">
-  	varying vec2 vTextureCoord;
-  	varying vec3 vNormal;
-  	varying vec3 vLight;
+  	varying vec2 Texcoord;
+  	varying vec3 Normal;
   	varying vec3 vEye;
-  	varying vec3 vMvNormal;
 
 	uniform bool uUseLighting;
 	uniform bool uUseColorMap;
@@ -66,16 +100,16 @@
 	uniform bool uUseParallaxMap;
 	uniform bool uUseEmissionMap;
 
-	uniform mat4 uModelMatrix;
-	uniform mat4 uViewMatrix;
-	uniform mat3 uNormalMatrix;
+	uniform mat4 model;
+	uniform mat4 view;
+	uniform mat3 normalModel;
 
 	uniform float uDepthScale;
 
 	uniform glMaterial uFrontMaterial;
 
-	//不特別實作背面
-	//uniform glMaterial uBackMaterial;
+	// 不特別實作背面
+	// uniform glMaterial uBackMaterial;
 
 	uniform glLight uLights[MAX_LIGHT];
 
@@ -86,21 +120,21 @@
 	uniform sampler2D uEmissionMapSampler;
 
   	mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv) {
-      // get edge vectors of the pixel triangle
-      vec3 dp1 = dFdx(p);
-      vec3 dp2 = dFdy(p);
-      vec2 duv1 = dFdx(uv);
-      vec2 duv2 = dFdy(uv);
+		// get edge vectors of the pixel triangle
+		vec3 dp1 = dFdx(p);
+		vec3 dp2 = dFdy(p);
+		vec2 duv1 = dFdx(uv);
+		vec2 duv2 = dFdy(uv);
 
-      // solve the linear system
-      vec3 dp2perp = cross(dp2, N);
-      vec3 dp1perp = cross(N, dp1);
-      vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-      vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+		// solve the linear system
+		vec3 dp2perp = cross(dp2, N);
+		vec3 dp1perp = cross(N, dp1);
+		vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+		vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
 
-      // construct a scale-invariant frame
-      float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-      return mat3(T * invmax, B * invmax, N);
+		// construct a scale-invariant frame
+		float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
+		return mat3(T * invmax, B * invmax, N);
   	}
 
   	vec2 parallax_uv(sampler2D tex_depth,vec2 uv, vec3 view_dir, int num_layers, float depth_scale) {
@@ -114,13 +148,13 @@
         for (int i = 0; i < 127; i++) {
 			if(i >= num_layers){
 				break;
-			};
+			}
             cur_layer_depth += layer_depth;
             cur_uv -= delta_uv;
 			depth_from_tex = texture2D(tex_depth, cur_uv).r;
             if (depth_from_tex < cur_layer_depth) {
 				break;
-			};
+			}
 		}
 			  
         // Parallax occlusion mapping
@@ -131,107 +165,102 @@
 		return mix(cur_uv, prev_uv, weight);
   	}
 
-  	vec4 calculateLight(
-		glLight lightData, 
-		glMaterial material_data, 
-		vec3 Normal, vec3 Light, 
-		vec3 LightDir, 
-		float LightDist, 
-		vec3 Eye, 
-		vec3 Half, 
-		vec4 texel, 
-		float shiness) {
-			
-		float I_D = max(dot(Normal, Light), 0.0);
-    	float I_S = pow(max(dot(Half, Normal), 0.0), shiness);
+  	vec4 calculateLight(glLight light, glMaterial material, vec3 norm, vec3 lightDir, vec3 SpotDir, float distance, vec3 Eye, vec3 Half, vec4 texel, float shiness) {
+		
+		float I_D = max(dot(norm, lightDir), 0.0);
+    	float I_S = pow(max(dot(Half, norm), 0.0), shiness);
 
-		vec4 diffuse = I_D * lightData.diffuse * material_data.diffuse * texel;
-		vec4 specular = vec4(I_S * lightData.specular.rgb * material_data.specular.rgb, 1.0);
-		vec4 ambient = lightData.ambient * material_data.ambient * texel;
+		vec4 diffuse = I_D * light.diffuse * material.diffuse * texel;
+		vec4 specular = vec4(I_S * light.specular.rgb * material.specular.rgb, 1.0);
+		vec4 ambient = light.ambient * material.ambient * texel;
 		float attenuation = 1.0;
 			
 		// the light is a spotlight
-		if (lightData.spotCutOff <= M_PI - 1e-3 && lightData.spotCutOff >= -1e-3) { 
-			float spotCosine = dot(LightDir, -Light.xyz);
-			if (spotCosine >= cos(lightData.spotCutOff)) {
-				attenuation = clamp(pow(spotCosine, lightData.spotExponent), 0.0, 1.0);
+		if (light.spotCutOff <= M_PI - 1e-3 && light.spotCutOff >= -1e-3) { 
+			float spotCosine = dot(SpotDir, -lightDir.xyz);
+			if (spotCosine >= cos(light.spotCutOff)) {
+				attenuation = clamp(pow(spotCosine, light.spotExponent), 0.0, 1.0);
 			}else{
 				attenuation = 0.0;
 			}
 		}
 
-    	attenuation = attenuation / (lightData.constantAttenuation + lightData.linearAttenuation * LightDist + lightData.quadraticAttenuation * LightDist * LightDist);
+    	attenuation = attenuation / (light.constantAttenuation + light.linearAttenuation * distance + light.quadraticAttenuation * distance * distance);
     	return ambient + ( diffuse + specular ) * attenuation;
 	}
 	  
 	void main(void) {
 		
-		mat3 lTangentMatrix = mat3(1.0);
-		vec2 lTextureCoord = vTextureCoord.st;
+		mat3 TBN = mat3(1.0);
+		vec2 texture_coordinate = Texcoord;
 		int lParallaxStep = 64;
 		
 		if (uUseParallaxMap) {
-			lTextureCoord = parallax_uv(uParallaxMapSampler , vTextureCoord.st, -vEye.xyz, lParallaxStep, uDepthScale);
+			texture_coordinate = parallax_uv(uParallaxMapSampler , Texcoord.st, -vEye.xyz, lParallaxStep, uDepthScale);
 		}
 		
-		vec4 texel = texture2D(uSampler, lTextureCoord);
+		vec4 texel = texture2D(uSampler, texture_coordinate);
 		if (!uUseColorMap) {
-			texel = vec4(1.0, 1.0, 1.0, 1.0)
-		};
+			texel = vec4(1.0, 1.0, 1.0, 1.0);
+		}
 
 		if (!uUseLighting) {
 			gl_FragColor = texel;
 		}else{
 			vec3 illumination = vec3(0.0, 0.0, 0.0);
-			vec3 Normal = vNormal;
-
-			//==============
-			lTangentMatrix = cotangent_frame(vNormal, -vEye, lTextureCoord);
+			
+			vec3 norm = Normal;
+			TBN = cotangent_frame(norm, -vEye, texture_coordinate);
 			if(uUseParallaxMap){
-				mat3 tbn = transpose(lTangentMatrix);
-
-				lTextureCoord = parallax_uv(uParallaxMapSampler, vTextureCoord.st, normalize(tbn*(-vEye)), lParallaxStep, uDepthScale);
-				lTangentMatrix = cotangent_frame(vNormal, -vEye, lTextureCoord);
-
+				mat3 TBN_t = transpose(TBN);
+				texture_coordinate = parallax_uv(uParallaxMapSampler, Texcoord.st, normalize( TBN_t * (-vEye)), lParallaxStep, uDepthScale);
+				TBN = cotangent_frame(norm, -vEye, texture_coordinate);
 				if (uUseColorMap) {
-					texel = texture2D(uSampler, lTextureCoord);
-				};
+					texel = texture2D(uSampler, texture_coordinate);
+				}
 			}
-			vec3 normal_texel = texture2D(ubumpMapSampler, lTextureCoord).xyz;
-			
-			// 圖像為0-255儲存
-			normal_texel = normal_texel * 255./127. - 128./127.; 
-			
+
 			if(uUseBumpMap){
-				normal_texel.y = -normal_texel.y;
-				Normal = lTangentMatrix * normal_texel;
+				vec3 texture_normal = texture2D(ubumpMapSampler, texture_coordinate).xyz;
+				texture_normal = texture_normal * 255.0/127.0 - 128.0/127.0; 
+				texture_normal.y = -texture_normal.y;
+				norm = TBN * texture_normal;
 			}
-      
-			Normal = normalize(Normal);
+			norm = normalize(norm);
+
 			for(int i = 0; i < MAX_LIGHT; ++i){
 				if (!uLights[i].enable) {
 					continue;
 				}
-				vec4 eyeLightPos = uViewMatrix * uLights[i].position;
+				vec4 eyeLightPos = view * uLights[i].position;
 
-				vec3 Light = eyeLightPos.xyz + vEye.xyz;
-				float LightDist = length(Light);
-				Light = normalize(Light);
-				vec3 LightDir = Light;
-				if( !isZero(length(uLights[i].direction.xyz)) ) LightDir = normalize(-(uViewMatrix * uLights[i].direction).xyz);
-				if( isZero(uLights[i].position.w) ) Light = LightDir; // is directional light
+				vec3 lightDir = eyeLightPos.xyz + vEye.xyz;
+				float distance = length(lightDir);
+				lightDir = normalize(lightDir);
+				vec3 SpotDir = lightDir;
 
-				vec3 Eye = normalize(vEye);
-				vec3 Half = normalize(Eye + Light);
+				if(!isZero(length(uLights[i].direction.xyz))){
+					SpotDir = normalize(-(view * uLights[i].direction).xyz);
+				}
+
+				if(isZero(uLights[i].position.w)){
+					// is directional light
+					lightDir = SpotDir;
+				}
+
+				vec3 viewDir = normalize(vEye);
+				vec3 halfway = normalize(viewDir + lightDir);
 
 				float shiness = uFrontMaterial.shiness;
-				if(uUseSpecularMap) shiness = shiness * texture2D(uSpecularMapSampler, lTextureCoord ).r;
+				if (uUseSpecularMap) {
+					shiness = shiness * texture2D(uSpecularMapSampler, texture_coordinate).r;
+				}
 
-				illumination += clamp(calculateLight(uLights[i], uFrontMaterial,Normal, Light, LightDir, LightDist, Eye, Half, texel, shiness).rgb, 0.0, 1.0);
+				illumination += clamp(calculateLight(uLights[i], uFrontMaterial, norm, lightDir, SpotDir, distance, viewDir, halfway, texel, shiness).rgb, 0.0, 1.0);
 			}
 			
 			if(uUseEmissionMap){
-				illumination += texture2D(uEmissionMapSampler, lTextureCoord ).rgb;
+				illumination += texture2D(uEmissionMapSampler, texture_coordinate).rgb;
 			}
 
 			gl_FragColor = vec4(clamp(illumination, 0.0, 1.0), texel.a);
@@ -239,45 +268,110 @@
 	}
 </script>
 
-<script id="shader-vs" type="x-shader/x-vertex">
-	attribute vec3 aVertexPosition;
-	attribute vec3 aVertexNormal;
-	attribute vec2 aTextureCoord;
-
-	uniform mat4 uViewMatrix;
-	uniform mat4 uModelMatrix;
-	uniform mat4 uProjectionMatrix;
-	uniform mat3 uNormalMatrix;
-
-	uniform glLight uLights[MAX_LIGHT];
-
-	uniform bool uUseLighting;
-	varying vec2 vTextureCoord;
-
-	//法向量線性內插
-	varying vec3 vNormal;
-	varying vec3 vMvNormal;
-
-	//眼睛相對點的向量線性內插
-	varying vec3 vEye;
-
-	void main(void) {
-		
-		//local variable; ModelViewMatrix; Model Matrix和View Matrix之積 (後乘法)
-		mat4 lModelViewMatrix = uViewMatrix * uModelMatrix;
-		gl_Position = uProjectionMatrix * lModelViewMatrix * vec4(aVertexPosition, 1.0);
-		vTextureCoord = aTextureCoord;
-
-		vec4 eyePosition = lModelViewMatrix * vec4(aVertexPosition, 1.0);
-		vNormal = normalize(uNormalMatrix * aVertexNormal);
-		vMvNormal = normalize((lModelViewMatrix * vec4(aVertexNormal, 1.0)).xyz);
-		vEye = -eyePosition.xyz;
-	}
-</script>
-
 <script type="text/javascript">
 
     var gl;
+
+	var lightStructMembers = [
+		"position",
+		"direction",
+
+		"diffuse",
+		"specular",
+		"ambient",
+
+		"spotCutOff",
+		"constantAttenuation",
+		"linearAttenuation",
+		"quadraticAttenuation",
+		"spotExponent",
+		"enable"
+    ];
+
+    var materialStructMembers = [
+		"ambient",
+		"diffuse",
+		"specular",
+		"emission",
+		"shiness"
+    ];
+    var light_sources = [];
+    var numLights = 4;
+
+	var shaderProgram;
+
+	var earthTexture = {};
+    var floorTexture = {};
+    var crateTexture = {};
+
+	var front_material;
+
+	var TopMatrix;
+    var matrix_modes = ["view", "model", "projection", "texture", "color"];
+
+	var viewHead = 0;
+    var viewRoll = 0;
+    var viewEpitch = 0;
+    var viewUppos = 0;
+    var viewRight = 0;
+    var viewZoom = -5;
+
+	var currentlyPressedKeys = {};
+
+	var lastTime = 0;
+	var old_spot_exp = [64.0, 0.0, 0.0, 0.0];
+    var old_light_state = [3, 2, 1, 2];
+
+	// 定義特殊矩陣
+    var special_matrix_modes = {
+		"modelview": {
+			"get_matrix": function() {
+				var result = mat4.create();
+				mat4.multiply(TopMatrix("view"), TopMatrix("model"), result);
+				return result;
+			}
+		},
+		"modelviewprojection": {
+			"get_matrix": function() {
+				var result = mat4.create();
+				mat4.multiply(TopMatrix("projection"), TopMatrix("modelview"), result);
+				return result;
+			}
+		},
+		"normal": {
+			"get_matrix": function() {
+				var normalMatrix = mat3.create();
+				mat4.toInverseMat3(TopMatrix("modelview"), normalMatrix);
+				mat3.transpose(normalMatrix);
+				return normalMatrix;
+			}
+		},
+		"identity": {
+			"get_matrix": function() {
+				var result = mat4.create();
+				mat4.identity(result);
+				return result;
+			}
+		}
+    };
+    var Matries = [];
+
+	var cubeVertexPositionBuffer;
+    var cubeVertexNormalBuffer;
+    var cubeVertexTextureCoordBuffer;
+    var cubeVertexIndexBuffer;
+
+    var earthVertexPositionBuffer;
+    var earthVertexNormalBuffer;
+    var earthVertexTextureCoordBuffer;
+    var earthVertexIndexBuffer;
+
+    var mirrorVertexPositionBuffer;
+    var mirrorVertexNormalBuffer;
+    var mirrorVertexIndexBuffer;
+
+	var earthAngle = 180;
+    var cubeAngle = 0;
 
     function initGL(canvas) {
         try {
@@ -289,41 +383,18 @@
         } catch (e) {
             gl = null;
         }
+
         if (!gl) {
             alert("Could not initialise WebGL, sorry :-(");
         }
-        //若不提供uniform boolean傳遞，則用uniform1i代替
-        if(typeof gl.uniform1b !== 'function')
-        gl.uniform1b = function(binding_data, bool_val){
-          gl.uniform1i(binding_data, !bool_val ? 0 : 1);
-        };
+
+        // 若不提供 uniform boolean 傳遞，則用 uniform1i 代替
+        if(typeof gl.uniform1b !== 'function') {
+        	gl.uniform1b = function(binding_data, bool_val) {
+          		gl.uniform1i(binding_data, !bool_val ? 0 : 1);
+        	};
+		}	
     }
-
-    var lightStructMembers = [
-      "position",
-      "direction",
-
-      "diffuse",
-      "specular",
-      "ambient",
-
-      "spotCutOff",
-      "constantAttenuation",
-      "linearAttenuation",
-      "quadraticAttenuation",
-      "spotExponent",
-      "enable"
-    ];
-
-    var materialStructMembers = [
-      "ambient",
-      "diffuse",
-      "specular",
-      "emission",
-      "shiness"
-    ];
-    var light_sources = [];
-    var numLights = 4;
 
     function getShader(gl, id) {
         var shaderScript = document.getElementById(id);
@@ -335,14 +406,14 @@
         var str = "", header = '';
         var k = shaderScript.firstChild;
         while (k) {
-          if (k.nodeType == 3) str += k.textContent;
-          k = k.nextSibling;
+			if (k.nodeType == 3) str += k.textContent;
+			k = k.nextSibling;
         }
 
         k = shaderHeader.firstChild;
         while (k) {
-          if (k.nodeType == 3) header += k.textContent;
-          k = k.nextSibling;
+			if (k.nodeType == 3) header += k.textContent;
+			k = k.nextSibling;
         }
         if(header && header !== '')str = header + '\n' + str;
 
@@ -365,9 +436,6 @@
 
         return shader;
     }
-
-
-    var shaderProgram;
 
     function initShaders() {
         var fragmentShader = getShader(gl, "shader-fs");
@@ -394,13 +462,13 @@
         gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
 
         shaderProgram.projectionMatrixUniform =
-        gl.getUniformLocation(shaderProgram, "uProjectionMatrix");
+        gl.getUniformLocation(shaderProgram, "projection");
         shaderProgram.viewMatrixUniform =
-        gl.getUniformLocation(shaderProgram, "uViewMatrix");
+        gl.getUniformLocation(shaderProgram, "view");
         shaderProgram.modelMatrixUniform =
-        gl.getUniformLocation(shaderProgram, "uModelMatrix");
+        gl.getUniformLocation(shaderProgram, "model");
         shaderProgram.normalMatrixUniform =
-        gl.getUniformLocation(shaderProgram, "uNormalMatrix");
+        gl.getUniformLocation(shaderProgram, "normalModel");
 
         shaderProgram.samplerUniform = gl.getUniformLocation(shaderProgram, "uSampler");
         shaderProgram.specularMapSamplerUniform = gl.getUniformLocation(shaderProgram, "uSpecularMapSampler");
@@ -423,30 +491,26 @@
 
         shaderProgram.FrontMaterialUniform = {};
         var structMembers = {};
-        //將結構中每個成員變數Bind，並且儲存Bind資訊
+
+        // 將結構中每個成員變數Bind，並且儲存Bind資訊
         for (var jj = 0; jj < materialStructMembers.length; ++jj) {
-          var name = materialStructMembers[jj];
-          structMembers[name] = gl.getUniformLocation(shaderProgram,
-            //組合出GLSL的Syntax以便Binding
-            "uFrontMaterial." + name);
+          	var name = materialStructMembers[jj];
+          	structMembers[name] = gl.getUniformLocation(shaderProgram, "uFrontMaterial." + name);
         }
         shaderProgram.FrontMaterialUniform = structMembers;
 
         shaderProgram.lightsUniform = {};
-        //場景中可以有多盞燈
+        // 場景中可以有多盞燈
         for (var ll = 0; ll < numLights; ++ll) {
-          structMembers = {};
-          //將結構中每個成員變數Bind，並且儲存Bind資訊
-          for (var jj = 0; jj < lightStructMembers.length; ++jj) {
-            var name = lightStructMembers[jj];
-            structMembers[name] = gl.getUniformLocation(shaderProgram,
-              //組合出GLSL的Syntax以便Binding
-              "uLights[" + ll + "]." + name);
-            }
-            shaderProgram.lightsUniform[ll] = structMembers;
-          }
+          	structMembers = {};
+          	// 將結構中每個成員變數Bind，並且儲存Bind資訊
+          	for (var jj = 0; jj < lightStructMembers.length; ++jj) {
+            	var name = lightStructMembers[jj];
+            	structMembers[name] = gl.getUniformLocation(shaderProgram, "uLights[" + ll + "]." + name);
+        	}
+        	shaderProgram.lightsUniform[ll] = structMembers;
+        }
     }
-
 
     function handleLoadedTexture(texture) {
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -460,22 +524,16 @@
     }
 
     function loadTexture(file_name) {
-      var tes_buf = gl.createTexture();
-      tes_buf.image = new Image();
-      tes_buf.image.onload = function () {
-        handleLoadedTexture(tes_buf);
-      }
-
-      tes_buf.image.src = file_name;
-      return tes_buf;
+		var tes_buf = gl.createTexture();
+		tes_buf.image = new Image();
+		tes_buf.image.onload = function () {
+			handleLoadedTexture(tes_buf);
+		}
+		tes_buf.image.src = file_name;
+		return tes_buf;
     }
 
-    var earthTexture = {};
-    var floorTexture = {};
-    var crateTexture = {};
-
     function initTextures() {
-
         earthTexture.diffuse = loadTexture("earth.jpg");
         earthTexture.specular = loadTexture("earth_specular.gif");
         earthTexture.bump = loadTexture("earth_bump.png");
@@ -491,238 +549,167 @@
         crateTexture.depth = loadTexture("crate_depth.png");
     }
 
+    function initLighting() {
+		for(var i=0; i<numLights; ++i){
+			light_sources[i] = {
+				direction: [0.0, 0.0, 1.0, 0.0],
+				position: [0.0, 0.0, 0.0, 1.0],
 
-    function initLighting(){
-      for(var i=0; i<numLights; ++i){
-        light_sources[i] = {
-          direction: [0.0, 0.0, 1.0, 0.0],
-          position: [0.0, 0.0, 0.0, 1.0],
+				ambient: [0.3, 0.3, 0.3, 1.0],
+				diffuse: [0.0, 0.0, 0.0, 1.0],
+				specular: [0.8, 0.8, 0.8, 1.0],
 
-          ambient: [0.3, 0.3, 0.3, 1.0],
-          diffuse: [0.0, 0.0, 0.0, 1.0],
-          specular: [0.8, 0.8, 0.8, 1.0],//defult no specular
-
-          spotCutOff:  degToRad(10.0),
-          spotExponent: 100.0,
-          constantAttenuation: 1.0,
-          linearAttenuation: 0.0,
-          quadraticAttenuation: 0.0,
-          enable: i == 0
-        };
-      }
+				spotCutOff:  degToRad(10.0),
+				spotExponent: 100.0,
+				constantAttenuation: 1.0,
+				linearAttenuation: 0.0,
+				quadraticAttenuation: 0.0,
+				enable: i == 0
+			};
+		}
     }
-    function UpdateLighting(){
-      for(var i=0; i<numLights; ++i){
-        gl.uniform4fv(shaderProgram.lightsUniform[i].direction,
-          light_sources[i].direction);
-        gl.uniform4fv(shaderProgram.lightsUniform[i].position,
-          light_sources[i].position);
-
-        gl.uniform4fv(shaderProgram.lightsUniform[i].ambient,
-          light_sources[i].ambient);
-        gl.uniform4fv(shaderProgram.lightsUniform[i].diffuse,
-          light_sources[i].diffuse);
-        gl.uniform4fv(shaderProgram.lightsUniform[i].specular,
-          light_sources[i].specular);
-
-        gl.uniform1f(shaderProgram.lightsUniform[i].spotCutOff,
-          light_sources[i].spotCutOff);
-        gl.uniform1f(shaderProgram.lightsUniform[i].spotExponent,
-          light_sources[i].spotExponent);
-
-        gl.uniform1f(shaderProgram.lightsUniform[i].constantAttenuation,
-          light_sources[i].constantAttenuation);
-        gl.uniform1f(shaderProgram.lightsUniform[i].linearAttenuation,
-          light_sources[i].linearAttenuation);
-        gl.uniform1f(shaderProgram.lightsUniform[i].quadraticAttenuation,
-          light_sources[i].quadraticAttenuation);
-
-        gl.uniform1b(shaderProgram.lightsUniform[i].enable,
-          light_sources[i].enable);
-      }
+    
+	function UpdateLighting() {
+		for(var i = 0; i < numLights; ++i){
+			gl.uniform4fv(shaderProgram.lightsUniform[i].direction, light_sources[i].direction);
+			gl.uniform4fv(shaderProgram.lightsUniform[i].position, light_sources[i].position);
+			gl.uniform4fv(shaderProgram.lightsUniform[i].ambient, light_sources[i].ambient);
+			gl.uniform4fv(shaderProgram.lightsUniform[i].diffuse, light_sources[i].diffuse);
+			gl.uniform4fv(shaderProgram.lightsUniform[i].specular, light_sources[i].specular);
+			gl.uniform1f(shaderProgram.lightsUniform[i].spotCutOff, light_sources[i].spotCutOff);
+			gl.uniform1f(shaderProgram.lightsUniform[i].spotExponent, light_sources[i].spotExponent);
+			gl.uniform1f(shaderProgram.lightsUniform[i].constantAttenuation, light_sources[i].constantAttenuation);
+			gl.uniform1f(shaderProgram.lightsUniform[i].linearAttenuation, light_sources[i].linearAttenuation);
+			gl.uniform1f(shaderProgram.lightsUniform[i].quadraticAttenuation, light_sources[i].quadraticAttenuation);
+			gl.uniform1b(shaderProgram.lightsUniform[i].enable, light_sources[i].enable);
+		}
     }
 
-    var front_material;
     function initMaterial(){
-      front_material = {
-        ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
-        diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
-        specular:[0.7, 0.7, 0.7, 1.0],//描述物體的鏡面反射
-        emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
-        shiness:32
-      };
+		front_material = {
+			ambient: [1.0, 1.0, 1.0, 1.0],
+			diffuse: [1.0, 1.0, 1.0, 1.0],
+			specular: [0.7, 0.7, 0.7, 1.0],
+			emission: [0.0, 0.0, 0.0, 1.0],
+			shiness: 32
+		};
     }
-    function UpdateMaterial(objMaterial){
-      gl.uniform4fv(shaderProgram.FrontMaterialUniform.ambient,
-        objMaterial.ambient);
-      gl.uniform4fv(shaderProgram.FrontMaterialUniform.diffuse,
-        objMaterial.diffuse);
-      gl.uniform4fv(shaderProgram.FrontMaterialUniform.specular,
-        objMaterial.specular);
-      gl.uniform4fv(shaderProgram.FrontMaterialUniform.emission,
-        objMaterial.emission);
-      gl.uniform1f(shaderProgram.FrontMaterialUniform.shiness,
-        objMaterial.shiness);
+    
+	function UpdateMaterial(objMaterial){
+		gl.uniform4fv(shaderProgram.FrontMaterialUniform.ambient, objMaterial.ambient);
+		gl.uniform4fv(shaderProgram.FrontMaterialUniform.diffuse, objMaterial.diffuse);
+		gl.uniform4fv(shaderProgram.FrontMaterialUniform.specular, objMaterial.specular);
+		gl.uniform4fv(shaderProgram.FrontMaterialUniform.emission, objMaterial.emission);
+		gl.uniform1f(shaderProgram.FrontMaterialUniform.shiness, objMaterial.shiness);
     }
-    var TopMatrix;
-    var matrix_modes = ["view", "model", "projection", "texture", "color"];
-    //定義特殊矩陣
-    var special_matrix_modes = {
-      "modelview":{
-        "get_matrix":function(){
-          var result = mat4.create();
-          mat4.multiply(TopMatrix("view"), TopMatrix("model"), result);
-          return result;
-        }
-      },
-      "modelviewprojection":{
-        "get_matrix":function(){
-          var result = mat4.create();
-          mat4.multiply(TopMatrix("projection"), TopMatrix("modelview"), result);
-          return result;
-        }
-      },
-      "normal":{
-        "get_matrix":function(){
-          var normalMatrix = mat3.create();
-          mat4.toInverseMat3(TopMatrix("modelview"), normalMatrix);
-          mat3.transpose(normalMatrix);
-          return normalMatrix;
-        }
-      },
-      "identity":{
-        "get_matrix":function(){
-          var result = mat4.create();
-          mat4.identity(result);
-          return result;
-        }
-      }
-    };
-    var Matries = [];
-
+    
     function initMatrix(){
-      //依序初始化所有矩陣堆疊
-      for(var i=0; i<matrix_modes.length; ++i){
-        Matries[matrix_modes[i]] = [mat4.create()];
-      }
+      	// 依序初始化所有矩陣堆疊
+		for(var i = 0; i < matrix_modes.length; ++i){
+			Matries[matrix_modes[i]] = [mat4.create()];
+		}
     }
+
     TopMatrix = function(matrix_mode) {
-      if(special_matrix_modes[matrix_mode] &&
-        typeof special_matrix_modes[matrix_mode].get_matrix === "function"){
-          return special_matrix_modes[matrix_mode].get_matrix();
-      }
-        //只作用在矩陣堆疊的頂層
-      return Matries[matrix_mode][Matries[matrix_mode].length-1];
+		if(special_matrix_modes[matrix_mode] && typeof special_matrix_modes[matrix_mode].get_matrix === "function") {
+			return special_matrix_modes[matrix_mode].get_matrix();
+		}
+		// 只作用在矩陣堆疊的頂層
+		return Matries[matrix_mode][Matries[matrix_mode].length-1];
     }
+
     function PushMatrix(matrix_mode) {
-      //建立一個零矩陣來準備儲存矩陣
-      var copy = mat4.create();
-      //將堆疊頂層的矩陣複製一份
-      mat4.set(TopMatrix(matrix_mode), copy);
-      //再放進堆疊
-      Matries[matrix_mode].push(copy);
+		// 建立一個零矩陣來準備儲存矩陣
+		var copy = mat4.create();
+		// 將堆疊頂層的矩陣複製一份
+		mat4.set(TopMatrix(matrix_mode), copy);
+		// 再放進堆疊
+		Matries[matrix_mode].push(copy);
     }
 
     function PopMatrix(matrix_mode) {
-      if (Matries[matrix_mode].length == 0) {
-        throw "Invalid popMatrix!";
-      }
-      Matries[matrix_mode].pop();
+		if (Matries[matrix_mode].length == 0) {
+			throw "Invalid popMatrix!";
+		}
+		Matries[matrix_mode].pop();
     }
 
     function setMatrixUniforms() {
-      gl.uniformMatrix4fv(shaderProgram.projectionMatrixUniform, false, TopMatrix("projection"));
-      gl.uniformMatrix4fv(shaderProgram.viewMatrixUniform, false, TopMatrix("view"));
-      gl.uniformMatrix4fv(shaderProgram.modelMatrixUniform, false, TopMatrix("model"));
-      gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, TopMatrix("normal"));
-      //尚未用到的矩陣
-      //gl.uniformMatrix4fv(shaderProgram.colorMatrixUniform, false, TopMatrix("color"));
-      //gl.uniformMatrix4fv(shaderProgram.textureMatrixUniform, false, TopMatrix("texture"));
+		gl.uniformMatrix4fv(shaderProgram.projectionMatrixUniform, false, TopMatrix("projection"));
+		gl.uniformMatrix4fv(shaderProgram.viewMatrixUniform, false, TopMatrix("view"));
+		gl.uniformMatrix4fv(shaderProgram.modelMatrixUniform, false, TopMatrix("model"));
+		gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, TopMatrix("normal"));
+		//尚未用到的矩陣
+		//gl.uniformMatrix4fv(shaderProgram.colorMatrixUniform, false, TopMatrix("color"));
+		//gl.uniformMatrix4fv(shaderProgram.textureMatrixUniform, false, TopMatrix("texture"));
     }
 
     function degToRad(degrees) {
         return degrees * Math.PI / 180;
     }
 
-    var viewHead = 0;
-    var viewRoll = 0;
-    var viewEpitch = 0;
-    var viewUppos = 0;
-    var viewRight = 0;
-    var viewZoom = -5;
-
-    var currentlyPressedKeys = {};
-
     function handleKeyDown(event) {
-      currentlyPressedKeys[event.keyCode] = true;
+    	currentlyPressedKeys[event.keyCode] = true;
     }
 
     function handleKeyUp(event) {
-      currentlyPressedKeys[event.keyCode] = false;
+     	currentlyPressedKeys[event.keyCode] = false;
     }
 
     function handleKeys() {
-      if (currentlyPressedKeys[83]) viewZoom += 0.05; //w
-      if (currentlyPressedKeys[87]) viewZoom -= 0.05; //s
-      if (currentlyPressedKeys[65]) viewRight += 0.05; //a
-      if (currentlyPressedKeys[68]) viewRight -= 0.05; //d
-      if (currentlyPressedKeys[90]) viewUppos += 0.05; //z
-      if (currentlyPressedKeys[88]) viewUppos -= 0.05; //x
+		if (currentlyPressedKeys[83]) viewZoom += 0.05; //w
+		if (currentlyPressedKeys[87]) viewZoom -= 0.05; //s
+		if (currentlyPressedKeys[65]) viewRight += 0.05; //a
+		if (currentlyPressedKeys[68]) viewRight -= 0.05; //d
+		if (currentlyPressedKeys[90]) viewUppos += 0.05; //z
+		if (currentlyPressedKeys[88]) viewUppos -= 0.05; //x
 
-      if (currentlyPressedKeys[82]) viewEpitch += 0.5; //r
-      if (currentlyPressedKeys[70]) viewEpitch -= 0.5; //f
-      if (currentlyPressedKeys[84]) viewHead += 0.5; //t
-      if (currentlyPressedKeys[71]) viewHead -= 0.5; //g
-      if (currentlyPressedKeys[89]) viewRoll += 0.5; //y
-      if (currentlyPressedKeys[72]) viewRoll -= 0.5; //h
+		if (currentlyPressedKeys[82]) viewEpitch += 0.5; //r
+		if (currentlyPressedKeys[70]) viewEpitch -= 0.5; //f
+		if (currentlyPressedKeys[84]) viewHead += 0.5; //t
+		if (currentlyPressedKeys[71]) viewHead -= 0.5; //g
+		if (currentlyPressedKeys[89]) viewRoll += 0.5; //y
+		if (currentlyPressedKeys[72]) viewRoll -= 0.5; //h
 
-      if (currentlyPressedKeys[81]){ //Q, 攝影機復位
-        viewHead = 0;
-        viewRoll = 0;
-        viewEpitch = 0;
-        viewUppos = 0;
-        viewRight = 0;
-        viewZoom = 0;
-      }
-      if (currentlyPressedKeys[33]) {
-        // Page Up
-        z -= 0.05;
-      }
-      if (currentlyPressedKeys[34]) {
-        // Page Down
-        z += 0.05;
-      }
-      if (currentlyPressedKeys[37]) {
-        // Left cursor key
-        ySpeed -= 1;
-      }
-      if (currentlyPressedKeys[39]) {
-        // Right cursor key
-        ySpeed += 1;
-      }
-      if (currentlyPressedKeys[38]) {
-        // Up cursor key
-        xSpeed -= 1;
-      }
-      if (currentlyPressedKeys[40]) {
-        // Down cursor key
-        xSpeed += 1;
-      }
+		if (currentlyPressedKeys[81]){ //Q, 攝影機復位
+			viewHead = 0;
+			viewRoll = 0;
+			viewEpitch = 0;
+			viewUppos = 0;
+			viewRight = 0;
+			viewZoom = 0;
+		}
+
+		if (currentlyPressedKeys[33]) {
+			// Page Up
+			z -= 0.05;
+		}
+
+		if (currentlyPressedKeys[34]) {
+			// Page Down
+			z += 0.05;
+		}
+
+		if (currentlyPressedKeys[37]) {
+			// Left cursor key
+			ySpeed -= 1;
+		}
+
+		if (currentlyPressedKeys[39]) {
+			// Right cursor key
+			ySpeed += 1;
+		}
+
+		if (currentlyPressedKeys[38]) {
+			// Up cursor key
+			xSpeed -= 1;
+		}
+
+		if (currentlyPressedKeys[40]) {
+			// Down cursor key
+			xSpeed += 1;
+		}
     }
-
-    var cubeVertexPositionBuffer;
-    var cubeVertexNormalBuffer;
-    var cubeVertexTextureCoordBuffer;
-    var cubeVertexIndexBuffer;
-
-    var earthVertexPositionBuffer;
-    var earthVertexNormalBuffer;
-    var earthVertexTextureCoordBuffer;
-    var earthVertexIndexBuffer;
-
-    var mirrorVertexPositionBuffer;
-    var mirrorVertexNormalBuffer;
-    var mirrorVertexIndexBuffer;
 
     function initBuffers() {
         cubeVertexPositionBuffer = gl.createBuffer();
@@ -868,7 +855,6 @@
         cubeVertexIndexBuffer.itemSize = 1;
         cubeVertexIndexBuffer.numItems = 36;
 
-
         var latitudeBands = 30;
         var longitudeBands = 30;
         var radius = 2;
@@ -958,13 +944,11 @@
         mirrorVertexNormalBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, mirrorVertexNormalBuffer);
         var vertexNormals = [
-
             // Back face
              0.0,  0.0, -1.0,
              0.0,  0.0, -1.0,
              0.0,  0.0, -1.0,
              0.0,  0.0, -1.0,
-
         ];
         gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexNormals), gl.STATIC_DRAW);
         mirrorVertexNormalBuffer.itemSize = 3;
@@ -982,292 +966,290 @@
         initMatrix();
     }
 
-
-    var earthAngle = 180;
-    var cubeAngle = 0;
-
 	function reshape(width, height){
-		    gl.viewportWidth = width;
+		gl.viewportWidth = width;
         gl.viewportHeight = height;
         gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
         mat4.identity(TopMatrix("projection"));
         mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 500.0, TopMatrix("projection"));
-        //Define the current eye position and the eye-coordinate system
+        
+		// Define the current eye position and the eye-coordinate system
         mat4.identity(TopMatrix("view"));
 
-        //Define Viewing Matrix
+        // Define Viewing Matrix
         mat4.lookAt([0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0], TopMatrix("view"));
 	}
 
-  function updateLightdata(light_id){
-    var light_type = document.getElementById('Light' + light_id + 'Type').selectedIndex;
-    light_sources[light_id].enable = document.getElementById('Light' + light_id + 'On').checked;
-    if(light_type == 3){
-      var LightCutoff = parseFloat(document.getElementById("Light" + light_id + "Cutoff").value) / 46.022471910112359550561797752809 + 1;
-      document.getElementById("Light" + light_id + "CutoffDisplay").innerHTML
-        = ('' + (Math.floor(LightCutoff * 100.0)/100.0));
-      light_sources[light_id].spotCutOff = degToRad(LightCutoff);
+  	function updateLightdata(light_id){
+		var light_type = document.getElementById('Light' + light_id + 'Type').selectedIndex;
+		light_sources[light_id].enable = document.getElementById('Light' + light_id + 'On').checked;
+		if (light_type == 3) {
+			var LightCutoff = parseFloat(document.getElementById("Light" + light_id + "Cutoff").value) / 46.022471910112359550561797752809 + 1;
+			document.getElementById("Light" + light_id + "CutoffDisplay").innerHTML = ('' + (Math.floor(LightCutoff * 100.0)/100.0));
+			light_sources[light_id].spotCutOff = degToRad(LightCutoff);
 
-      var LightSpotExponent = parseFloat(document.getElementById("Light" + light_id + "SpotExponent").value) / 64.0 - 1.0;
-      document.getElementById("Light" + light_id + "SpotExponentDisplay").innerHTML
-        = ('' + (Math.floor(LightSpotExponent * 100.0)/100.0));
-      light_sources[light_id].spotExponent = LightSpotExponent;
-    }else{
-      light_sources[light_id].spotCutOff = degToRad(180.0);
-      light_sources[light_id].spotExponent = 1.0;
-    }
-    //is Directional light or Spot light
-    var flag = (light_type == 1 || light_type == 3) ? ((light_type == 1) ? -1.0 : 1.0) : 0.0;
-    light_sources[light_id].direction = [
-      parseFloat(document.getElementById("Light" + light_id + "DirectionX").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "DirectionY").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "DirectionZ").value) * flag,
-      0.0
-    ];
-    //is Point light or Spot light
-    flag = (light_type == 2 || light_type == 3) ? 1.0 : 0.0;
-    light_sources[light_id].position = [
-      parseFloat(document.getElementById("Light" + light_id + "PositionX").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "PositionY").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "PositionZ").value) * flag,
-      1.0 * flag
-    ];
-    //is Directional light or Point light or Spot light
-    flag = (light_type >= 1) ? 1.0 : 0.0;
-    light_sources[light_id].ambient = [
-      parseFloat(document.getElementById("Light" + light_id + "AmbientR").value),
-      parseFloat(document.getElementById("Light" + light_id + "AmbientG").value),
-      parseFloat(document.getElementById("Light" + light_id + "AmbientB").value),
-      1.0
-    ];
-    light_sources[light_id].diffuse = [
-      parseFloat(document.getElementById("Light" + light_id + "DiffuseR").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "DiffuseG").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "DiffuseB").value) * flag,
-      1.0
-    ];
-    light_sources[light_id].specular = [
-      parseFloat(document.getElementById("Light" + light_id + "SpecularR").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "SpecularG").value) * flag,
-      parseFloat(document.getElementById("Light" + light_id + "SpecularB").value) * flag,
-      1.0
-    ];
+			var LightSpotExponent = parseFloat(document.getElementById("Light" + light_id + "SpotExponent").value) / 64.0 - 1.0;
+			document.getElementById("Light" + light_id + "SpotExponentDisplay").innerHTML = ('' + (Math.floor(LightSpotExponent * 100.0)/100.0));
+			light_sources[light_id].spotExponent = LightSpotExponent;
+		} else {
+			light_sources[light_id].spotCutOff = degToRad(180.0);
+			light_sources[light_id].spotExponent = 1.0;
+		}
 
+		// is Directional light or Spot light
+		var flag = (light_type == 1 || light_type == 3) ? ((light_type == 1) ? -1.0 : 1.0) : 0.0;
+		light_sources[light_id].direction = [
+			parseFloat(document.getElementById("Light" + light_id + "DirectionX").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "DirectionY").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "DirectionZ").value) * flag,
+			0.0
+		];
 
-  }
+		// is Point light or Spot light
+		flag = (light_type == 2 || light_type == 3) ? 1.0 : 0.0;
+		light_sources[light_id].position = [
+			parseFloat(document.getElementById("Light" + light_id + "PositionX").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "PositionY").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "PositionZ").value) * flag,
+			1.0 * flag
+		];
+
+		// is Directional light or Point light or Spot light
+		flag = (light_type >= 1) ? 1.0 : 0.0;
+		light_sources[light_id].ambient = [
+			parseFloat(document.getElementById("Light" + light_id + "AmbientR").value),
+			parseFloat(document.getElementById("Light" + light_id + "AmbientG").value),
+			parseFloat(document.getElementById("Light" + light_id + "AmbientB").value),
+			1.0
+		];
+
+		light_sources[light_id].diffuse = [
+			parseFloat(document.getElementById("Light" + light_id + "DiffuseR").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "DiffuseG").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "DiffuseB").value) * flag,
+			1.0
+		];
+
+		light_sources[light_id].specular = [
+			parseFloat(document.getElementById("Light" + light_id + "SpecularR").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "SpecularG").value) * flag,
+			parseFloat(document.getElementById("Light" + light_id + "SpecularB").value) * flag,
+			1.0
+		];
+  	}
 
 	function drawScene() {
 
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
-    var lighting = document.getElementById("lighting").checked;
-    gl.uniform1i(shaderProgram.useLightingUniform, lighting);
-    if (lighting) {
-      for(var i=0; i<3; ++i) updateLightdata(i);
-        UpdateLighting();
-    }
+		var lighting = document.getElementById("lighting").checked;
+		gl.uniform1i(shaderProgram.useLightingUniform, lighting);
+		if (lighting) {
+			for(var i=0; i<3; ++i){
+				updateLightdata(i);
+			}
+			UpdateLighting();
+		}
 
-    gl.uniform1i(shaderProgram.useColorMapUniform, document.getElementById("useColorMap").checked);
-    var UseSpecularMap = document.getElementById("UseSpecularMap").checked;
-    var UseBumpMap = document.getElementById("UseBumpMap").checked;
-    var useEmissionMap = document.getElementById("useEmissionMap").checked;
-    var useParallaxMap = document.getElementById("useParallaxMap").checked;
+		gl.uniform1i(shaderProgram.useColorMapUniform, document.getElementById("useColorMap").checked);
+		var UseSpecularMap = document.getElementById("UseSpecularMap").checked;
+		var UseBumpMap = document.getElementById("UseBumpMap").checked;
+		var useEmissionMap = document.getElementById("useEmissionMap").checked;
+		var useParallaxMap = document.getElementById("useParallaxMap").checked;
 
-    PushMatrix("view");
-      //Camera control
-      mat4.rotate(TopMatrix("view"), degToRad(viewHead), [0.0, 1.0, 0.0]);
-      mat4.rotate(TopMatrix("view"), degToRad(viewRoll), [0.0, 0.0, 1.0]);
-      mat4.rotate(TopMatrix("view"), degToRad(viewEpitch), [1.0, 0.0, 0.0]);
-      mat4.translate(TopMatrix("view"), [0.0, viewUppos, 0.0]);
-      mat4.translate(TopMatrix("view"), [-viewRight, 0.0, 0.0]);
-      mat4.translate(TopMatrix("view"), [0.0, 0.0, -viewZoom]);
+		PushMatrix("view");
+			// Camera control
+			mat4.rotate(TopMatrix("view"), degToRad(viewHead), [0.0, 1.0, 0.0]);
+			mat4.rotate(TopMatrix("view"), degToRad(viewRoll), [0.0, 0.0, 1.0]);
+			mat4.rotate(TopMatrix("view"), degToRad(viewEpitch), [1.0, 0.0, 0.0]);
+			mat4.translate(TopMatrix("view"), [0.0, viewUppos, 0.0]);
+			mat4.translate(TopMatrix("view"), [-viewRight, 0.0, 0.0]);
+			mat4.translate(TopMatrix("view"), [0.0, 0.0, -viewZoom]);
 
-      // Draw the Scene
-      mat4.identity(TopMatrix("model"));
+			// Draw the Scene
+			mat4.identity(TopMatrix("model"));
 
-      mat4.translate(TopMatrix("model"), [0, 0, -20]);
+			mat4.translate(TopMatrix("model"), [0, 0, -20]);
 
-      gl.uniform1i(shaderProgram.useBumpMapUniform, false);
-      gl.uniform1i(shaderProgram.useEmissionMapUniform, false);
-      gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
-
-
-      PushMatrix("model");
-        mat4.rotate(TopMatrix("model"), degToRad(90), [0, 1, 0]);
-        mat4.translate(TopMatrix("model"), [20, 0, 0]);
-        mat4.scale(TopMatrix("model"), [10, 10, 10]);
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, cubeVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
-        gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
-
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, floorTexture.diffuse);
-        gl.uniform1i(shaderProgram.samplerUniform, 0);
-
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.uniform1i(shaderProgram.specularMapSamplerUniform, 1);
-
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, floorTexture.bump);
-        gl.uniform1i(shaderProgram.bumpMapSamplerUniform, 2);
-
-        gl.activeTexture(gl.TEXTURE3);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.uniform1i(shaderProgram.emissionMapSamplerUniform, 3);
-
-        gl.activeTexture(gl.TEXTURE4);
-        gl.bindTexture(gl.TEXTURE_2D, floorTexture.depth);
-        gl.uniform1i(shaderProgram.parallaxMapSamplerUniform, 4);
-
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
-
-        front_material = {
-          ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
-          diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
-          specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
-          emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
-          shiness:255
-        };
-        UpdateMaterial(front_material);
-        setMatrixUniforms();
-        gl.uniform1f(shaderProgram.depthScaleUniform, 0.01);
-        gl.uniform1i(shaderProgram.useBumpMapUniform, UseBumpMap);
-        gl.uniform1i(shaderProgram.useParallaxMapUniform, useParallaxMap);
-        gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 60);
-        gl.uniform1i(shaderProgram.useBumpMapUniform, false);
-        gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
-      PopMatrix("model");
+			gl.uniform1i(shaderProgram.useBumpMapUniform, false);
+			gl.uniform1i(shaderProgram.useEmissionMapUniform, false);
+			gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
 
 
-      PushMatrix("model");
-        mat4.rotate(TopMatrix("model"), degToRad(earthAngle), [0, 1, 0]);
-        mat4.translate(TopMatrix("model"), [5, 0, 0]);
+			PushMatrix("model");
+				mat4.rotate(TopMatrix("model"), degToRad(90), [0, 1, 0]);
+				mat4.translate(TopMatrix("model"), [20, 0, 0]);
+				mat4.scale(TopMatrix("model"), [10, 10, 10]);
+				gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
+				gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+				gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
+				gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, cubeVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+				gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
+				gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+				gl.activeTexture(gl.TEXTURE0);
+				gl.bindTexture(gl.TEXTURE_2D, floorTexture.diffuse);
+				gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				gl.uniform1i(shaderProgram.specularMapSamplerUniform, 1);
+
+				gl.activeTexture(gl.TEXTURE2);
+				gl.bindTexture(gl.TEXTURE_2D, floorTexture.bump);
+				gl.uniform1i(shaderProgram.bumpMapSamplerUniform, 2);
+
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				gl.uniform1i(shaderProgram.emissionMapSamplerUniform, 3);
+
+				gl.activeTexture(gl.TEXTURE4);
+				gl.bindTexture(gl.TEXTURE_2D, floorTexture.depth);
+				gl.uniform1i(shaderProgram.parallaxMapSamplerUniform, 4);
+
+				gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
+
+				front_material = {
+					ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+					diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
+					specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
+					emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+					shiness:255
+				};
+
+				UpdateMaterial(front_material);
+
+				setMatrixUniforms();
+
+				gl.uniform1f(shaderProgram.depthScaleUniform, 0.01);
+				gl.uniform1i(shaderProgram.useBumpMapUniform, UseBumpMap);
+				gl.uniform1i(shaderProgram.useParallaxMapUniform, useParallaxMap);
+				gl.drawElements(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, 60);
+				gl.uniform1i(shaderProgram.useBumpMapUniform, false);
+				gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
+			PopMatrix("model");
+
+			PushMatrix("model");
+				mat4.rotate(TopMatrix("model"), degToRad(earthAngle), [0, 1, 0]);
+				mat4.translate(TopMatrix("model"), [5, 0, 0]);
 
 
-        mat4.rotate(TopMatrix("model"), degToRad(90), [0, 1, 0]);
+				mat4.rotate(TopMatrix("model"), degToRad(90), [0, 1, 0]);
 
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, earthTexture.diffuse);
-        gl.uniform1i(shaderProgram.samplerUniform, 0);
+				gl.activeTexture(gl.TEXTURE0);
+				gl.bindTexture(gl.TEXTURE_2D, earthTexture.diffuse);
+				gl.uniform1i(shaderProgram.samplerUniform, 0);
 
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, earthTexture.specular);
-        gl.uniform1i(shaderProgram.specularMapSamplerUniform, 1);
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, earthTexture.specular);
+				gl.uniform1i(shaderProgram.specularMapSamplerUniform, 1);
 
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, earthTexture.bump);
-        gl.uniform1i(shaderProgram.bumpMapSamplerUniform, 2);
+				gl.activeTexture(gl.TEXTURE2);
+				gl.bindTexture(gl.TEXTURE_2D, earthTexture.bump);
+				gl.uniform1i(shaderProgram.bumpMapSamplerUniform, 2);
 
-        gl.activeTexture(gl.TEXTURE3);
-        gl.bindTexture(gl.TEXTURE_2D, earthTexture.emission);
-        gl.uniform1i(shaderProgram.emissionMapSamplerUniform, 3);
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, earthTexture.emission);
+				gl.uniform1i(shaderProgram.emissionMapSamplerUniform, 3);
 
-        gl.activeTexture(gl.TEXTURE4);
-        gl.bindTexture(gl.TEXTURE_2D, earthTexture.depth);
-        gl.uniform1i(shaderProgram.parallaxMapSamplerUniform, 4);
+				gl.activeTexture(gl.TEXTURE4);
+				gl.bindTexture(gl.TEXTURE_2D, earthTexture.depth);
+				gl.uniform1i(shaderProgram.parallaxMapSamplerUniform, 4);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, earthVertexPositionBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, earthVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+				gl.bindBuffer(gl.ARRAY_BUFFER, earthVertexPositionBuffer);
+				gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, earthVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, earthVertexTextureCoordBuffer);
-        gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, earthVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+				gl.bindBuffer(gl.ARRAY_BUFFER, earthVertexTextureCoordBuffer);
+				gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, earthVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, earthVertexNormalBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, earthVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+				gl.bindBuffer(gl.ARRAY_BUFFER, earthVertexNormalBuffer);
+				gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, earthVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, earthVertexIndexBuffer);
-        setMatrixUniforms();
-        front_material = {
-          ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
-          diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
-          specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
-          emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
-          shiness:511
-        };
-        UpdateMaterial(front_material);
-        gl.uniform1i(shaderProgram.useSpecularUniform, UseSpecularMap);
-        gl.uniform1i(shaderProgram.useEmissionMapUniform, useEmissionMap);
-        gl.uniform1i(shaderProgram.useBumpMapUniform, UseBumpMap);
-          gl.uniform1i(shaderProgram.useParallaxMapUniform, useParallaxMap);
-        gl.drawElements(gl.TRIANGLES, earthVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
-        gl.uniform1i(shaderProgram.useSpecularUniform, false);
-        gl.uniform1i(shaderProgram.useEmissionMapUniform, false);
-        gl.uniform1i(shaderProgram.useBumpMapUniform, false);
-          gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
-      PopMatrix("model");
+				gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, earthVertexIndexBuffer);
+				setMatrixUniforms();
+				front_material = {
+					ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+					diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
+					specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
+					emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+					shiness:511
+				};
+				UpdateMaterial(front_material);
 
-
-      PushMatrix("model");
-        mat4.rotate(TopMatrix("model"), degToRad(cubeAngle), [0, 1, 0]);
-
-        mat4.translate(TopMatrix("model"), [5, 0, 0]);
+				gl.uniform1i(shaderProgram.useSpecularUniform, UseSpecularMap);
+				gl.uniform1i(shaderProgram.useEmissionMapUniform, useEmissionMap);
+				gl.uniform1i(shaderProgram.useBumpMapUniform, UseBumpMap);
+				gl.uniform1i(shaderProgram.useParallaxMapUniform, useParallaxMap);
+				gl.drawElements(gl.TRIANGLES, earthVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+				gl.uniform1i(shaderProgram.useSpecularUniform, false);
+				gl.uniform1i(shaderProgram.useEmissionMapUniform, false);
+				gl.uniform1i(shaderProgram.useBumpMapUniform, false);
+				gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
+			PopMatrix("model");
 
 
-        mat4.scale(TopMatrix("model"), [2.0, 2.0, 2.0]);
+			PushMatrix("model");
+				mat4.rotate(TopMatrix("model"), degToRad(cubeAngle), [0, 1, 0]);
+				mat4.translate(TopMatrix("model"), [5, 0, 0]);
+				mat4.scale(TopMatrix("model"), [2.0, 2.0, 2.0]);
 
+				gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
+				gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+				gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
+				gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, cubeVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
-        gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, cubeVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+				gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
+				gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
-        gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+				gl.activeTexture(gl.TEXTURE0);
+				gl.bindTexture(gl.TEXTURE_2D, crateTexture.diffuse);
+				gl.uniform1i(shaderProgram.samplerUniform, 0);
 
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, crateTexture.diffuse);
-        gl.uniform1i(shaderProgram.samplerUniform, 0);
+				gl.activeTexture(gl.TEXTURE1);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				gl.uniform1i(shaderProgram.specularMapSamplerUniform, 1);
 
-        gl.activeTexture(gl.TEXTURE1);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.uniform1i(shaderProgram.specularMapSamplerUniform, 1);
+				gl.activeTexture(gl.TEXTURE2);
+				gl.bindTexture(gl.TEXTURE_2D, crateTexture.bump);
+				gl.uniform1i(shaderProgram.bumpMapSamplerUniform, 2);
 
-        gl.activeTexture(gl.TEXTURE2);
-        gl.bindTexture(gl.TEXTURE_2D, crateTexture.bump);
-        gl.uniform1i(shaderProgram.bumpMapSamplerUniform, 2);
+				gl.activeTexture(gl.TEXTURE3);
+				gl.bindTexture(gl.TEXTURE_2D, null);
+				gl.uniform1i(shaderProgram.emissionMapSamplerUniform, 3);
 
-        gl.activeTexture(gl.TEXTURE3);
-        gl.bindTexture(gl.TEXTURE_2D, null);
-        gl.uniform1i(shaderProgram.emissionMapSamplerUniform, 3);
+				gl.activeTexture(gl.TEXTURE4);
+				gl.bindTexture(gl.TEXTURE_2D, crateTexture.depth);
+				gl.uniform1i(shaderProgram.parallaxMapSamplerUniform, 4);
 
-        gl.activeTexture(gl.TEXTURE4);
-        gl.bindTexture(gl.TEXTURE_2D, crateTexture.depth);
-        gl.uniform1i(shaderProgram.parallaxMapSamplerUniform, 4);
+				gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
 
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
+				front_material = {
+					ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+					diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的漫反射
+					specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
+					emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+					shiness:255
+				};
+				UpdateMaterial(front_material);
 
-        front_material = {
-          ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
-          diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的漫反射
-          specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
-          emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
-          shiness:255
-        };
-        UpdateMaterial(front_material);
-        setMatrixUniforms();
-        gl.uniform1f(shaderProgram.depthScaleUniform, 0.05);
-        gl.uniform1i(shaderProgram.useBumpMapUniform, UseBumpMap);
-        gl.uniform1i(shaderProgram.useParallaxMapUniform, useParallaxMap);
-        gl.drawElements(gl.TRIANGLES, cubeVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
-        gl.uniform1i(shaderProgram.useBumpMapUniform, false);
-        gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
+				setMatrixUniforms();
+				gl.uniform1f(shaderProgram.depthScaleUniform, 0.05);
+				gl.uniform1i(shaderProgram.useBumpMapUniform, UseBumpMap);
+				gl.uniform1i(shaderProgram.useParallaxMapUniform, useParallaxMap);
+				gl.drawElements(gl.TRIANGLES, cubeVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+				gl.uniform1i(shaderProgram.useBumpMapUniform, false);
+				gl.uniform1i(shaderProgram.useParallaxMapUniform, false);
+			PopMatrix("model");
 
-      PopMatrix("model");
-    PopMatrix("view");
+		PopMatrix("view");
 	}
 
     function display() {
-        drawScene();
+    	drawScene();
     }
-
-    var lastTime = 0;
 
     function animate() {
         var timeNow = new Date().getTime();
@@ -1287,7 +1269,6 @@
         animate();
     }
 
-
     function webGLStart() {
         var canvas = document.getElementById("lesson9-canvas");
         initGL(canvas);
@@ -1305,80 +1286,84 @@
 
         tick();
     }
-    var old_spot_exp = [64.0, 0.0, 0.0, 0.0];
-    var old_light_state = [3, 2, 1, 2];
+    
     function updateHTMLoption(light_id) {
-      var light_type_opt = document.getElementById('Light' + light_id + 'Type');
-      var spot_exp_opt = document.getElementById('Light' + light_id + 'SpotExponent');
-      var light_opt = document.getElementById('Light' + light_id + 'Setting');
-      if(document.getElementById('Light' + light_id + 'On').checked){
-        light_opt.style.display = null;
-      }else{
-        light_opt.style.display = 'none';
-      }
-      if(light_id>=3) return;
-      if(old_light_state[light_id] == 3)  old_spot_exp[light_id] = spot_exp_opt.value;
-      switch (light_type_opt.selectedIndex) {
-        case 1:
-          document.getElementById('Light' + light_id + 'Cutoff').style.display = 'none';
-          document.getElementById('Light' + light_id + 'PositionRow').style.display = 'none';
-          document.getElementById('Light' + light_id + 'DirectionRow').style.display = null;
-          document.getElementById('Light' + light_id + 'DiffuseRow').style.display = null;
-          document.getElementById('Light' + light_id + 'SpecularRow').style.display = null;
-          document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = 'none';
-          document.getElementById('Light' + light_id + 'CutoffCellData').style.display = 'none';
-          document.getElementById('Light' + light_id + 'SpotExponentDisplay').innerHTML = '0.0';
-          spot_exp_opt.value = 64;
-          spot_exp_opt.setAttribute('disabled', 'disabled');
-          spot_exp_opt.setAttribute('pointer-events', 'none');
-          break;
-        case 2:
-          document.getElementById('Light' + light_id + 'Cutoff').style.display = 'none';
-          document.getElementById('Light' + light_id + 'PositionRow').style.display = null;
-          document.getElementById('Light' + light_id + 'DirectionRow').style.display = 'none';
-          document.getElementById('Light' + light_id + 'DiffuseRow').style.display = null;
-          document.getElementById('Light' + light_id + 'SpecularRow').style.display = null;
-          document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = null;
-          document.getElementById('Light' + light_id + 'CutoffCellData').style.display = null;
-          document.getElementById('Light' + light_id + 'CutoffDisplay').innerHTML = '180.0';
-          document.getElementById('Light' + light_id + 'SpotExponentDisplay').innerHTML = '0.0';
-          spot_exp_opt.value = 64;
-          spot_exp_opt.setAttribute('disabled', 'disabled');
-          spot_exp_opt.setAttribute('pointer-events', 'none');
-          break;
-        case 3:
-          document.getElementById('Light' + light_id + 'Cutoff').style.display = null;
-          document.getElementById('Light' + light_id + 'PositionRow').style.display = null;
-          document.getElementById('Light' + light_id + 'DirectionRow').style.display = null;
-          document.getElementById('Light' + light_id + 'DiffuseRow').style.display = null;
-          document.getElementById('Light' + light_id + 'SpecularRow').style.display = null;
-          document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = null;
-          document.getElementById('Light' + light_id + 'CutoffCellData').style.display = null;
-          spot_exp_opt.value = old_spot_exp[light_id];
-          spot_exp_opt.removeAttribute("disabled");
-          spot_exp_opt.setAttribute('pointer-events', 'auto');
-          break;
-        default:
-          document.getElementById('Light' + light_id + 'Cutoff').style.display = 'none';
-          document.getElementById('Light' + light_id + 'PositionRow').style.display = 'none';
-          document.getElementById('Light' + light_id + 'DirectionRow').style.display = 'none';
-          document.getElementById('Light' + light_id + 'DiffuseRow').style.display = 'none';
-          document.getElementById('Light' + light_id + 'SpecularRow').style.display = 'none';
-          document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = 'none';
-          document.getElementById('Light' + light_id + 'CutoffCellData').style.display = 'none';
-          document.getElementById('Light' + light_id + 'SpotExponentDisplay').innerHTML = '0.0';
-          spot_exp_opt.value = 64;
-          spot_exp_opt.setAttribute('disabled', 'disabled');
-          spot_exp_opt.setAttribute('pointer-events', 'none');
-      }
-      old_light_state[light_id] = light_type_opt.selectedIndex;
-      //light_type_opt.selectedIndex
+		var light_type_opt = document.getElementById('Light' + light_id + 'Type');
+		var spot_exp_opt = document.getElementById('Light' + light_id + 'SpotExponent');
+		var light_opt = document.getElementById('Light' + light_id + 'Setting');
+		
+		if (document.getElementById('Light' + light_id + 'On').checked) {
+			light_opt.style.display = null;
+		} else {
+			light_opt.style.display = 'none';
+		}
+
+		if (light_id >= 3) {
+			return;
+		}
+
+		if(old_light_state[light_id] == 3) {
+			old_spot_exp[light_id] = spot_exp_opt.value;
+		}
+
+		switch (light_type_opt.selectedIndex) {
+			case 1:
+				document.getElementById('Light' + light_id + 'Cutoff').style.display = 'none';
+				document.getElementById('Light' + light_id + 'PositionRow').style.display = 'none';
+				document.getElementById('Light' + light_id + 'DirectionRow').style.display = null;
+				document.getElementById('Light' + light_id + 'DiffuseRow').style.display = null;
+				document.getElementById('Light' + light_id + 'SpecularRow').style.display = null;
+				document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = 'none';
+				document.getElementById('Light' + light_id + 'CutoffCellData').style.display = 'none';
+				document.getElementById('Light' + light_id + 'SpotExponentDisplay').innerHTML = '0.0';
+				spot_exp_opt.value = 64;
+				spot_exp_opt.setAttribute('disabled', 'disabled');
+				spot_exp_opt.setAttribute('pointer-events', 'none');
+				break;
+			case 2:
+				document.getElementById('Light' + light_id + 'Cutoff').style.display = 'none';
+				document.getElementById('Light' + light_id + 'PositionRow').style.display = null;
+				document.getElementById('Light' + light_id + 'DirectionRow').style.display = 'none';
+				document.getElementById('Light' + light_id + 'DiffuseRow').style.display = null;
+				document.getElementById('Light' + light_id + 'SpecularRow').style.display = null;
+				document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = null;
+				document.getElementById('Light' + light_id + 'CutoffCellData').style.display = null;
+				document.getElementById('Light' + light_id + 'CutoffDisplay').innerHTML = '180.0';
+				document.getElementById('Light' + light_id + 'SpotExponentDisplay').innerHTML = '0.0';
+				spot_exp_opt.value = 64;
+				spot_exp_opt.setAttribute('disabled', 'disabled');
+				spot_exp_opt.setAttribute('pointer-events', 'none');
+				break;
+			case 3:
+				document.getElementById('Light' + light_id + 'Cutoff').style.display = null;
+				document.getElementById('Light' + light_id + 'PositionRow').style.display = null;
+				document.getElementById('Light' + light_id + 'DirectionRow').style.display = null;
+				document.getElementById('Light' + light_id + 'DiffuseRow').style.display = null;
+				document.getElementById('Light' + light_id + 'SpecularRow').style.display = null;
+				document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = null;
+				document.getElementById('Light' + light_id + 'CutoffCellData').style.display = null;
+				spot_exp_opt.value = old_spot_exp[light_id];
+				spot_exp_opt.removeAttribute("disabled");
+				spot_exp_opt.setAttribute('pointer-events', 'auto');
+				break;
+			default:
+				document.getElementById('Light' + light_id + 'Cutoff').style.display = 'none';
+				document.getElementById('Light' + light_id + 'PositionRow').style.display = 'none';
+				document.getElementById('Light' + light_id + 'DirectionRow').style.display = 'none';
+				document.getElementById('Light' + light_id + 'DiffuseRow').style.display = 'none';
+				document.getElementById('Light' + light_id + 'SpecularRow').style.display = 'none';
+				document.getElementById('Light' + light_id + 'CutoffCellHead').style.display = 'none';
+				document.getElementById('Light' + light_id + 'CutoffCellData').style.display = 'none';
+				document.getElementById('Light' + light_id + 'SpotExponentDisplay').innerHTML = '0.0';
+				spot_exp_opt.value = 64;
+				spot_exp_opt.setAttribute('disabled', 'disabled');
+				spot_exp_opt.setAttribute('pointer-events', 'none');
+		}
+		old_light_state[light_id] = light_type_opt.selectedIndex;
+		// light_type_opt.selectedIndex
     }
 </script>
-
-
 </head>
-
 
 <body onload="webGLStart();">
     <h2>Lessons 9 : 特殊Texture Mapping</h2>
@@ -1396,158 +1381,158 @@
 
     <div style="width:100%;height:300px;overflow:auto;">
     <!-- Light 0 -->
-      <h2> <input type="checkbox" id="Light0On" onclick="updateHTMLoption(0);" checked /> Light 0:</h2>
-      <table style="border: 0; padding: 10px;" id="Light0Setting">
-        <tr>
-          <td><b>Light Type:</b></td>
-          <td><b>Spot Exponent:</b> <span id="Light0SpotExponentDisplay">0.0</span> </td>
-          <td id="Light0CutoffCellHead" style="display: none;"><b>Cut Off Angle:</b> <span id="Light0CutoffDisplay">180.0</span>° </td>
-        </tr>
-        <tr>
-          <td>
-            <select id="Light0Type" onchange="updateHTMLoption(0);">
-              <option>Ambient</option>
-              <option selected>Directional</option>
-              <option>Point</option>
-              <option>Spot</option>
-            </select>
-          </td>
-          <td><input type="range" min="0" max="4096" value="64" class="slider" id="Light0SpotExponent"></td>
-          <td id="Light0CutoffCellData" style="display: none;"><input type="range" min="0" max="4096" value="1335" class="slider" id="Light0Cutoff"></td>
-        </tr>
-          <tr id="Light0PositionRow" style="display: none;">
-              <td><b>Location:</b></td>
-              <td>X: <input type="text" id="Light0PositionX" value="0.0" /></td>
-              <td>Y: <input type="text" id="Light0PositionY" value="0.0" /></td>
-              <td>Z: <input type="text" id="Light0PositionZ" value="-20.0" /></td>
-          </tr>
-          <tr id="Light0DirectionRow">
-              <td><b>Direction:</b></td>
-              <td>X: <input type="text" id="Light0DirectionX" value="0.0" /></td>
-              <td>Y: <input type="text" id="Light0DirectionY" value="1.0" /></td>
-              <td>Z: <input type="text" id="Light0DirectionZ" value="0.5" /></td>
-          </tr>
-          <tr id="Light0DiffuseRow">
-            <td><b>Diffuse:</b></td>
-            <td>R: <input type="text" id="Light0DiffuseR" value="0.7" /></td>
-            <td>G: <input type="text" id="Light0DiffuseG" value="0.7" /></td>
-            <td>B: <input type="text" id="Light0DiffuseB" value="0.7" /></td>
-          </tr>
-          <tr id="Light0SpecularRow">
-            <td><b>Specular:</b></td>
-            <td>R: <input type="text" id="Light0SpecularR" value="0.9" /></td>
-            <td>G: <input type="text" id="Light0SpecularG" value="0.9" /></td>
-            <td>B: <input type="text" id="Light0SpecularB" value="0.9" /></td>
-          </tr>
-          <tr id="Light0AmbientRow">
-            <td><b>Ambient:</b></td>
-            <td>R: <input type="text" id="Light0AmbientR" value="0.3" /></td>
-            <td>G: <input type="text" id="Light0AmbientG" value="0.3" /></td>
-            <td>B: <input type="text" id="Light0AmbientB" value="0.3" /></td>
-          </tr>
-      </table>
-    <!-- Light 1 -->
-      <h2> <input type="checkbox" id="Light1On" onclick="updateHTMLoption(1);" /> Light 1:</h2>
-      <table style="border: 0; padding: 10px;" id="Light1Setting">
-        <tr>
-          <td><b>Light Type:</b></td>
-          <td><b>Spot Exponent:</b> <span id="Light1SpotExponentDisplay">0.0</span> </td>
-          <td id="Light1CutoffCellHead"><b>Cut Off Angle:</b> <span id="Light1CutoffDisplay">180.0</span>° </td>
-        </tr>
-        <tr>
-          <td>
-            <select id="Light1Type" onchange="updateHTMLoption(1);">
-              <option>Ambient</option>
-              <option>Directional</option>
-              <option selected>Point</option>
-              <option>Spot</option>
-            </select>
-          </td>
-          <td><input type="range" min="0" max="4096" value="64" class="slider" id="Light1SpotExponent"></td>
-          <td id="Light1CutoffCellData"><input type="range" min="0" max="4096" value="1335" class="slider" id="Light1Cutoff" style="display: none;"></td>
-        </tr>
-          <tr id="Light1PositionRow">
-              <td><b>Location:</b></td>
-              <td>X: <input type="text" id="Light1PositionX" value="0.0" /></td>
-              <td>Y: <input type="text" id="Light1PositionY" value="0.0" /></td>
-              <td>Z: <input type="text" id="Light1PositionZ" value="-20.0" /></td>
-          </tr>
-          <tr id="Light1DirectionRow" style="display: none;">
-              <td><b>Direction:</b></td>
-              <td>X: <input type="text" id="Light1DirectionX" value="0.0" /></td>
-              <td>Y: <input type="text" id="Light1DirectionY" value="0.0" /></td>
-              <td>Z: <input type="text" id="Light1DirectionZ" value="1.0" /></td>
-          </tr>
-          <tr id="Light1DiffuseRow">
-            <td><b>Diffuse:</b></td>
-            <td>R: <input type="text" id="Light1DiffuseR" value="0.0" /></td>
-            <td>G: <input type="text" id="Light1DiffuseG" value="0.0" /></td>
-            <td>B: <input type="text" id="Light1DiffuseB" value="0.8" /></td>
-          </tr>
-          <tr id="Light1SpecularRow">
-            <td><b>Specular:</b></td>
-            <td>R: <input type="text" id="Light1SpecularR" value="0.0" /></td>
-            <td>G: <input type="text" id="Light1SpecularG" value="0.0" /></td>
-            <td>B: <input type="text" id="Light1SpecularB" value="0.9" /></td>
-          </tr>
-          <tr id="Light1AmbientRow">
-            <td><b>Ambient:</b></td>
-            <td>R: <input type="text" id="Light1AmbientR" value="0.0" /></td>
-            <td>G: <input type="text" id="Light1AmbientG" value="0.0" /></td>
-            <td>B: <input type="text" id="Light1AmbientB" value="0.3" /></td>
-          </tr>
-      </table>
-    <!-- Light 2 -->
-      <h2> <input type="checkbox" id="Light2On" onclick="updateHTMLoption(2);" /> Light 2:</h2>
-      <table style="border: 0; padding: 10px;" id="Light2Setting">
-        <tr>
-          <td><b>Light Type:</b></td>
-          <td><b>Spot Exponent:</b> <span id="Light2SpotExponentDisplay">30</span> </td>
-          <td id="Light2CutoffCellHead"><b>Cut Off Angle:</b> <span id="Light2CutoffDisplay">30</span>° </td>
-        </tr>
-        <tr>
-          <td>
-            <select id="Light2Type" onchange="updateHTMLoption(2);">
-              <option>Ambient</option>
-              <option>Directional</option>
-              <option>Point</option>
-              <option selected>Spot</option>
-            </select>
-          </td>
-          <td><input type="range" min="0" max="4096" value="256" class="slider" id="Light2SpotExponent"></td>
-          <td id="Light2CutoffCellData"><input type="range" min="0" max="4096" value="1335" class="slider" id="Light2Cutoff"></td>
-        </tr>
-          <tr id="Light2PositionRow">
-              <td><b>Location:</b></td>
-              <td>X: <input type="text" id="Light2PositionX" value="0.0" /></td>
-              <td>Y: <input type="text" id="Light2PositionY" value="0.0" /></td>
-              <td>Z: <input type="text" id="Light2PositionZ" value="-20.0" /></td>
-          </tr>
-          <tr id="Light2DirectionRow">
-              <td><b>Direction:</b></td>
-              <td>X: <input type="text" id="Light2DirectionX" value="0.0" /></td>
-              <td>Y: <input type="text" id="Light2DirectionY" value="0.0" /></td>
-              <td>Z: <input type="text" id="Light2DirectionZ" value="1.0" /></td>
-          </tr>
-          <tr id="Light2DiffuseRow">
-            <td><b>Diffuse:</b></td>
-            <td>R: <input type="text" id="Light2DiffuseR" value="0.8" /></td>
-            <td>G: <input type="text" id="Light2DiffuseG" value="0.3" /></td>
-            <td>B: <input type="text" id="Light2DiffuseB" value="0.3" /></td>
-          </tr>
-          <tr id="Light2SpecularRow">
-            <td><b>Specular:</b></td>
-            <td>R: <input type="text" id="Light2SpecularR" value="0.9" /></td>
-            <td>G: <input type="text" id="Light2SpecularG" value="0.6" /></td>
-            <td>B: <input type="text" id="Light2SpecularB" value="0.6" /></td>
-          </tr>
-          <tr id="Light2AmbientRow">
-            <td><b>Ambient:</b></td>
-            <td>R: <input type="text" id="Light2AmbientR" value="0.1" /></td>
-            <td>G: <input type="text" id="Light2AmbientG" value="0.025" /></td>
-            <td>B: <input type="text" id="Light2AmbientB" value="0.025" /></td>
-          </tr>
-      </table>
+		<h2> <input type="checkbox" id="Light0On" onclick="updateHTMLoption(0);" checked /> Light 0:</h2>
+		<table style="border: 0; padding: 10px;" id="Light0Setting">
+			<tr>
+				<td><b>Light Type:</b></td>
+				<td><b>Spot Exponent:</b> <span id="Light0SpotExponentDisplay">0.0</span> </td>
+				<td id="Light0CutoffCellHead" style="display: none;"><b>Cut Off Angle:</b> <span id="Light0CutoffDisplay">180.0</span>° </td>
+			</tr>
+			<tr>
+				<td>
+					<select id="Light0Type" onchange="updateHTMLoption(0);">
+					<option>Ambient</option>
+					<option selected>Directional</option>
+					<option>Point</option>
+					<option>Spot</option>
+					</select>
+				</td>
+				<td><input type="range" min="0" max="4096" value="64" class="slider" id="Light0SpotExponent"></td>
+				<td id="Light0CutoffCellData" style="display: none;"><input type="range" min="0" max="4096" value="1335" class="slider" id="Light0Cutoff"></td>
+			</tr>
+			<tr id="Light0PositionRow" style="display: none;">
+				<td><b>Location:</b></td>
+				<td>X: <input type="text" id="Light0PositionX" value="0.0" /></td>
+				<td>Y: <input type="text" id="Light0PositionY" value="0.0" /></td>
+				<td>Z: <input type="text" id="Light0PositionZ" value="-20.0" /></td>
+			</tr>
+			<tr id="Light0DirectionRow">
+				<td><b>Direction:</b></td>
+				<td>X: <input type="text" id="Light0DirectionX" value="0.0" /></td>
+				<td>Y: <input type="text" id="Light0DirectionY" value="1.0" /></td>
+				<td>Z: <input type="text" id="Light0DirectionZ" value="0.5" /></td>
+			</tr>
+			<tr id="Light0DiffuseRow">
+				<td><b>Diffuse:</b></td>
+				<td>R: <input type="text" id="Light0DiffuseR" value="0.7" /></td>
+				<td>G: <input type="text" id="Light0DiffuseG" value="0.7" /></td>
+				<td>B: <input type="text" id="Light0DiffuseB" value="0.7" /></td>
+			</tr>
+			<tr id="Light0SpecularRow">
+				<td><b>Specular:</b></td>
+				<td>R: <input type="text" id="Light0SpecularR" value="0.9" /></td>
+				<td>G: <input type="text" id="Light0SpecularG" value="0.9" /></td>
+				<td>B: <input type="text" id="Light0SpecularB" value="0.9" /></td>
+			</tr>
+			<tr id="Light0AmbientRow">
+				<td><b>Ambient:</b></td>
+				<td>R: <input type="text" id="Light0AmbientR" value="0.3" /></td>
+				<td>G: <input type="text" id="Light0AmbientG" value="0.3" /></td>
+				<td>B: <input type="text" id="Light0AmbientB" value="0.3" /></td>
+			</tr>
+		</table>
+		<!-- Light 1 -->
+		<h2> <input type="checkbox" id="Light1On" onclick="updateHTMLoption(1);" /> Light 1:</h2>
+		<table style="border: 0; padding: 10px;" id="Light1Setting">
+			<tr>
+				<td><b>Light Type:</b></td>
+				<td><b>Spot Exponent:</b> <span id="Light1SpotExponentDisplay">0.0</span> </td>
+				<td id="Light1CutoffCellHead"><b>Cut Off Angle:</b> <span id="Light1CutoffDisplay">180.0</span>° </td>
+			</tr>
+			<tr>
+				<td>
+					<select id="Light1Type" onchange="updateHTMLoption(1);">
+					<option>Ambient</option>
+					<option>Directional</option>
+					<option selected>Point</option>
+					<option>Spot</option>
+					</select>
+				</td>
+				<td><input type="range" min="0" max="4096" value="64" class="slider" id="Light1SpotExponent"></td>
+				<td id="Light1CutoffCellData"><input type="range" min="0" max="4096" value="1335" class="slider" id="Light1Cutoff" style="display: none;"></td>
+			</tr>
+			<tr id="Light1PositionRow">
+				<td><b>Location:</b></td>
+				<td>X: <input type="text" id="Light1PositionX" value="0.0" /></td>
+				<td>Y: <input type="text" id="Light1PositionY" value="0.0" /></td>
+				<td>Z: <input type="text" id="Light1PositionZ" value="-20.0" /></td>
+			</tr>
+			<tr id="Light1DirectionRow" style="display: none;">
+				<td><b>Direction:</b></td>
+				<td>X: <input type="text" id="Light1DirectionX" value="0.0" /></td>
+				<td>Y: <input type="text" id="Light1DirectionY" value="0.0" /></td>
+				<td>Z: <input type="text" id="Light1DirectionZ" value="1.0" /></td>
+			</tr>
+			<tr id="Light1DiffuseRow">
+				<td><b>Diffuse:</b></td>
+				<td>R: <input type="text" id="Light1DiffuseR" value="0.0" /></td>
+				<td>G: <input type="text" id="Light1DiffuseG" value="0.0" /></td>
+				<td>B: <input type="text" id="Light1DiffuseB" value="0.8" /></td>
+			</tr>
+			<tr id="Light1SpecularRow">
+				<td><b>Specular:</b></td>
+				<td>R: <input type="text" id="Light1SpecularR" value="0.0" /></td>
+				<td>G: <input type="text" id="Light1SpecularG" value="0.0" /></td>
+				<td>B: <input type="text" id="Light1SpecularB" value="0.9" /></td>
+			</tr>
+			<tr id="Light1AmbientRow">
+				<td><b>Ambient:</b></td>
+				<td>R: <input type="text" id="Light1AmbientR" value="0.0" /></td>
+				<td>G: <input type="text" id="Light1AmbientG" value="0.0" /></td>
+				<td>B: <input type="text" id="Light1AmbientB" value="0.3" /></td>
+			</tr>
+		</table>
+		<!-- Light 2 -->
+		<h2> <input type="checkbox" id="Light2On" onclick="updateHTMLoption(2);" /> Light 2:</h2>
+		<table style="border: 0; padding: 10px;" id="Light2Setting">
+			<tr>
+				<td><b>Light Type:</b></td>
+				<td><b>Spot Exponent:</b> <span id="Light2SpotExponentDisplay">30</span> </td>
+				<td id="Light2CutoffCellHead"><b>Cut Off Angle:</b> <span id="Light2CutoffDisplay">30</span>° </td>
+			</tr>
+			<tr>
+				<td>
+					<select id="Light2Type" onchange="updateHTMLoption(2);">
+					<option>Ambient</option>
+					<option>Directional</option>
+					<option>Point</option>
+					<option selected>Spot</option>
+					</select>
+				</td>
+				<td><input type="range" min="0" max="4096" value="256" class="slider" id="Light2SpotExponent"></td>
+				<td id="Light2CutoffCellData"><input type="range" min="0" max="4096" value="1335" class="slider" id="Light2Cutoff"></td>
+			</tr>
+			<tr id="Light2PositionRow">
+				<td><b>Location:</b></td>
+				<td>X: <input type="text" id="Light2PositionX" value="0.0" /></td>
+				<td>Y: <input type="text" id="Light2PositionY" value="0.0" /></td>
+				<td>Z: <input type="text" id="Light2PositionZ" value="-20.0" /></td>
+			</tr>
+			<tr id="Light2DirectionRow">
+				<td><b>Direction:</b></td>
+				<td>X: <input type="text" id="Light2DirectionX" value="0.0" /></td>
+				<td>Y: <input type="text" id="Light2DirectionY" value="0.0" /></td>
+				<td>Z: <input type="text" id="Light2DirectionZ" value="1.0" /></td>
+			</tr>
+			<tr id="Light2DiffuseRow">
+				<td><b>Diffuse:</b></td>
+				<td>R: <input type="text" id="Light2DiffuseR" value="0.8" /></td>
+				<td>G: <input type="text" id="Light2DiffuseG" value="0.3" /></td>
+				<td>B: <input type="text" id="Light2DiffuseB" value="0.3" /></td>
+			</tr>
+			<tr id="Light2SpecularRow">
+				<td><b>Specular:</b></td>
+				<td>R: <input type="text" id="Light2SpecularR" value="0.9" /></td>
+				<td>G: <input type="text" id="Light2SpecularG" value="0.6" /></td>
+				<td>B: <input type="text" id="Light2SpecularB" value="0.6" /></td>
+			</tr>
+			<tr id="Light2AmbientRow">
+				<td><b>Ambient:</b></td>
+				<td>R: <input type="text" id="Light2AmbientR" value="0.1" /></td>
+				<td>G: <input type="text" id="Light2AmbientG" value="0.025" /></td>
+				<td>B: <input type="text" id="Light2AmbientB" value="0.025" /></td>
+			</tr>
+		</table>
     </div>
     <br/>
     Earth texture courtesy of <a href="http://maps.jpl.nasa.gov/">the Jet Propulsion Laboratory</a>.
