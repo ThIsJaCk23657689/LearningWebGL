@@ -99,77 +99,85 @@
         uniform mat4 view;
         uniform mat4 projection;
         uniform mat3 normalModel;
-        uniform bool isCubeMap;
-        
-        varying vec3 NavPos;
-        varying vec3 FragPos;
-        varying vec3 ViewDir;
-        varying vec3 Normal;
+
         varying vec2 TexCoord;
+        varying vec3 Normal;
+        varying vec3 FragPos
+        varying vec3 ViewDir;
         
         void main(void) {
             
-            NavPos = aVertexPosition;
-            FragPos = vec3(view * model * vec4(aVertexPosition, 1.0));
-            ViewDir = vec3(0, 0, 0) - FragPos;
-            Normal = normalize(normalModel * aNormal);
+            mat4 ModelViewMatrix = view * model;
             TexCoord = aTextureCoord;
-
-            if(isCubeMap){
-                // 繪製天空盒，將取消攝影機矩陣的位移，如此一來天空盒就可以無窮遠。
-                mat4 view_new = mat4(mat3(view));
-                vec4 pos = projection * view_new * model * vec4(aVertexPosition, 1.0);
-                gl_Position = pos.xyww;
-            }else{
-                gl_Position = projection * vec4(FragPos, 1.0);
-            }
+            Normal = normalize(normalModel * aNormal);
+            
+            FragPos = vec3(ModelViewMatrix * vec4(aVertexPosition, 1.0));
+            ViewDir = -FragPos;
+        
+            gl_Position = projection * ModelViewMatrix * vec4(aVertexPosition, 1.0);
         }
     </script>
     <script id="fragment" type="x-shader/x-fragment">
-        #extension GL_OES_standard_derivatives : enable
-        #extension GL_EXT_shader_texture_lod : enable
+        #define MAX_LIGHT 4;
+        #extension GL_OES_standard_derivatives : enable;
+        #extension GL_EXT_shader_texture_lod : enable;
         precision mediump float;
 
         struct Material {
-            sampler2D diffuse;
-            sampler2D specular;
-            sampler2D normal;
-            float shininess;
+            vec4 ambient;
+            vec4 diffuse;
+            vec4 specular;
+            vec4 emission;
+            float shiness;
+
+            sampler2D diffuse_texture;
+            sampler2D specular_texture;
+            sampler2D normal_texture;
+            sampler2D parallax_texture;
+            sampler2D emission_texture;
         };
 
         struct Light {
-            vec3 position;
+            vec4 position;
+            vec3 direction;
 
-            vec3 ambient;
-            vec3 diffuse;
-            vec3 specular;
+            vec4 ambient;
+            vec4 diffuse;
+            vec4 specular;
+
+            float cutOff;
+            float outerCutOff;
+            float exponent;
 
             float constant;
             float linear;
             float quadratic;
+
+            bool enable;
         };
         
-        varying vec3 NavPos;
-        varying vec3 FragPos;
-        varying vec3 ViewDir;
-        varying vec3 Normal;
         varying vec2 TexCoord;
+        varying vec3 Normal;
+        varying vec3 FragPos
+        varying vec3 ViewDir;
+
+        uniform bool useLighting;
+        uniform bool useDiffuseTexture;
+        uniform bool useSpecularTexture;
+        uniform bool useNormalTexture;
+        uniform bool useParallaxTexture;
+        uniform bool useEmissionTexture;
         
         uniform mat4 view;
-        uniform bool isRenderingSun;
-        uniform bool isRenderingSpace;
-        uniform bool isRenderingEarth;
-        uniform bool enableTexture;
-        uniform vec3 color;
-
-        // uniform vec3 viewPos;
+        uniform float depthScale;
 
         uniform Material material;
-        uniform Light light;
-        uniform int currentLighting;
-        
-        uniform bool isCubeMap;
-        uniform samplerCube skybox;
+        uniform Light lights[MAX_LIGHT];
+
+        // 如果小於 0.001 的數值就當作是 0。
+        bool isZero(float number) {
+            return abs(number) <= 1e-3;
+        }
 
         mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv) {
             // get edge vectors of the pixel triangle
@@ -204,22 +212,43 @@
             return normalize(TBN * texture_normal);
         }
 
+        vec4 calcLight(Light light, Material material, vec3 norm){
+
+        }
+
     	void main(void) {
 
-            vec4 texture_diffuse;
-            vec4 texture_specular;
-            vec4 texture_normal;
+            // Initial
+            mat3 TBN = mat3(1.0);
+            vec2 texture_coordinate = vec2(0.0);
+            vec4 texel = vec4(0.0);
 
-            if(isCubeMap){
-                // 材質類型採用 cubemap
-                texture_diffuse = textureCube(skybox, normalize(NavPos));
-                texture_specular = textureCube(skybox, normalize(NavPos));
-            }else {
-                // 材質類型採用 texture2D
-                texture_diffuse = texture2D(material.diffuse, TexCoord);
-                texture_specular = texture2D(material.specular, TexCoord);
+            // 如果有啟用 凹凸貼圖 => 重新計算材質座標
+            if (useParallaxTexture) {
+                int parallaxStep = 64;
+                texture_coordinate = parallax_uv(material.parallax_texture, TexCoord, -ViewDir, parallaxStep, depthScale);
+            } else {
+                texture_coordinate = TexCoord;
             }
-            
+
+            // 如果沒有啟用 漫射貼圖 => 使用純色(白色)
+            if (useDiffuseTexture) {
+                texel = texture2D(material.diffuse, texture_coordinate);
+            } else {
+                texel = vec4(1.0, 1.0, 1.0, 1.0);
+            }
+
+            // 是否開啟光照
+            if (!useLighting) {
+                gl_FragColor = texel;
+            } else {
+                vec3 illumination = vec3(0.0);
+                vec3 norm = Normal;
+                mat3 TBN = cotangent_frame(norm, -ViewDir, texture_coordinate);
+                
+            }
+
+
             if(isRenderingSun && enableTexture){
 
                 // 繪製太陽
@@ -329,80 +358,40 @@
 
             let cube = {};
             let sphere = {};
+            let wall = {};
 
-            // 重力常數
-            let G = 6.673e-11;
+            let lightSources = [];
+            let lightParameters = [
+                "position",
+                "direction",
+
+                "ambient",
+                "diffuse",
+                "specular",
+
+                "cutOff",
+                "outerCutOff",
+                "exponent",
+
+                "constant",
+                "linear",
+                "quadratic",
+
+                "enable"
+            ];
+            let lightNum = 4;
+
+            let materialParameters = [
+                "ambient",
+                "diffuse",
+                "specular",
+                "emission",
+                "shiness"
+            ];
+
 
             // 物件比例尺與各參數設定:
-            let space = {
-                "name": "Space",
-                "type": "universe",
-                "diameter": 10000,
-                "AU": NaN,
-                "obliquity": -45,
-                "orbital_period": NaN,
-                "rotate_period": 5000,
-                "orbital_angle": 0,
-                "rotate_angle": 0,
-                "count": {
-                    "orbit": 0,
-                    "rotate": 0,
-                },
-                "cloud": {
-                    "type": "cloud",
-                },
-            };
-            let sun = {
-                "name": "Sun",
-                "type": "star",
-                "diameter": 1392700,
-                "AU": NaN,
-                "position": vec3.set(vec3.create(), 0, 0, 0),
-                "obliquity": 7.25,
-                "orbital_period": NaN,
-                "rotate_period": 25.379995,
-                "orbital_angle": 0,
-                "rotate_angle": 0,
-                "mass": 1.989,
-                "count": {
-                    "orbit": 0,
-                    "rotate": 0,
-                },
-                "cloud": {
-                    "type": "cloud",
-                },
-            };
-            let earth = {
-                "name": "Earth",
-                "type": "planet",
-                "diameter": 12742,
-                "AU": 1 * 400 + 40,
-                "position": vec3.set(vec3.create(), 240, 0, 0),
-                "obliquity": 23.4,
-                "orbital_period": 365.25636,
-                "rotate_period": 1,
-                "orbital_angle": 0,
-                "rotate_angle": 0,
-                "mass": 5.972e24,
-                "perihelion": 0.9832,
-                "velocity": vec3.set(vec3.create(), 0, 0, 200),
-                "count": {
-                    "orbit": 0,
-                    "rotate": 0,
-                },
-                "cloud": {
-                    "type": "cloud",
-                },
-                "orbit": {
-                    "semi_major": 1 * 400 + 40,
-                    "semi_minor": 0.99986 * 400 + 40,
-                    "eccentricity": 0.016732615,
-                    "semi_latus": 0,
-                    "perihelion": 0,
-                    "aphelion": 0,
-                    "radius": 0,
-                },
-            };
+            let earth = {};
             
             earth.speed = 1;
 
@@ -465,12 +454,18 @@
                     gl.getExtension('OES_standard_derivatives');
                     gl.getExtension('EXT_shader_texture_lod');
                 } catch (e) {
-                    // gl = null;
+                    gl = null;
                 }
 
                 if (!gl) {
                     alert("Cloud not initialize WebGL.");
                     console.error('Cloud not initialize WebGL.');
+                }
+
+                if(typeof gl.uniform1b !== 'function') {
+                    gl.uniform1b = function(label, value) {
+                        gl.uniform1i(label, !value ? 0 : 1);
+                    };
                 }
             }
 
@@ -523,10 +518,12 @@
                 shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, 'aVertexPosition');
                 shaderProgram.normalAttribute = gl.getAttribLocation(shaderProgram, 'aNormal');
                 shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, 'aTextureCoord');
+                
                 shaderProgram.model = gl.getUniformLocation(shaderProgram, 'model');
                 shaderProgram.view = gl.getUniformLocation(shaderProgram, 'view');
                 shaderProgram.projection = gl.getUniformLocation(shaderProgram, 'projection');
                 shaderProgram.normalModel = gl.getUniformLocation(shaderProgram, 'normalModel');
+                
                 shaderProgram.color = gl.getUniformLocation(shaderProgram, 'color');
                 shaderProgram.enableTexture = gl.getUniformLocation(shaderProgram, 'enableTexture');
                 shaderProgram.lightPosition = gl.getUniformLocation(shaderProgram, 'lightPosition');
@@ -723,10 +720,6 @@
                 return degrees * Math.PI / 180;
             }
 
-            function getRandomArbitrary(min, max) {
-                return Math.random() * (max - min) + min;
-            }
-
             function initBuffers() {
                 cube.vertices = [
                     // Vertex           // Texture Coord
@@ -786,145 +779,10 @@
                 gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
 
                 // genSphereBuffer(sphere, 1, 30, 30);
-                genSphereBuffer(space, space.diameter, 30, 30);
-                genSphereBuffer(sun, 10, 30, 30);
                 genSphereBuffer(earth, 100 * 0.99, 30, 30);
-                genSphereBuffer(earth.cloud, 100, 30, 30);
-                genEllipseBuffer(earth.orbit);
+                // genSphereBuffer(earth.cloud, 100, 30, 30);
 
                 initMatrix();
-            }
-
-            function genRingBuffer(obj, radius_inner = 1, radius_outer = 0.5, stack = 180){
-                obj.radius_inner = radius_inner;
-                obj.radius_outer = radius_outer;
-                obj.vertices = [];
-                obj.indices = [];
-
-                for(let i = 0; i <= stack * 4; i++){
-                    let theta = i * Math.PI / stack;
-                    let sinTheta = Math.sin(theta);
-                    let cosTheta = Math.cos(theta);
-
-                    let x = sinTheta;
-                    let y = 0;
-                    let z = cosTheta;
-                    
-
-                    obj.vertices.push(obj.radius_inner * x);
-                    obj.vertices.push(0);
-                    obj.vertices.push(obj.radius_inner * z);
-
-                    // Generate normal vector (fake)
-                    let temp = vec3.set(vec3.create(), 2 * obj.radius_inner * x , 2 * obj.radius_inner * y, 2 * obj.radius_inner * z);
-                    let normal = vec3.normalize(vec3.create(), temp);
-                    obj.vertices.push(0);
-                    obj.vertices.push(1);
-                    obj.vertices.push(0);
-
-                    // Generate texture coordinate (fake)
-                    let u = 0;
-                    let v = 0;
-                    obj.vertices.push(u);
-                    obj.vertices.push(v);
-
-                    obj.vertices.push(obj.radius_outer * x);
-                    obj.vertices.push(0);
-                    obj.vertices.push(obj.radius_outer * z);
-
-                    // Generate normal vector (fake)
-                    temp = vec3.set(vec3.create(), 2 * obj.radius_outer * x , 2 * obj.radius_outer * y, 2 * obj.radius_outer * z);
-                    normal = vec3.normalize(vec3.create(), temp);
-                    obj.vertices.push(0);
-                    obj.vertices.push(1);
-                    obj.vertices.push(0);
-
-                    // Generate texture coordinate (fake)
-                    u = 1;
-                    v = 1 - (i / stack)
-                    obj.vertices.push(u);
-                    obj.vertices.push(v);
-                }
-
-                // 除以8 * 2 = 16 是因為兩個圓 和 8個object
-                let totalStack = obj.vertices.length / 16;
-                for (let i = 0; i < totalStack; i++) {
-                    let first = totalStack + 1 + i;
-                    let second = first + totalStack + 1;
-                    first = i;
-                    second = first + totalStack + 1;
-                    obj.indices.push(first);
-                    obj.indices.push(second);
-                    obj.indices.push(first + 1);
-
-                    obj.indices.push(second);
-                    obj.indices.push(second + 1);
-                    obj.indices.push(first + 1);
-                }
-                
-                // Bind buffer
-                obj.vbo = gl.createBuffer();
-                obj.ebo = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, obj.vbo);
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.vertices), gl.STATIC_DRAW);
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.ebo);
-                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.indices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
-                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
-            }
-
-            function genEllipseBuffer(obj, stack = 180){
-
-                // obj.eccentricity = Math.sqrt(1 - (Math.pow((obj.semi_minor - 20) / 200, 2) / Math.pow((obj.semi_major - 20) / 200, 2)));
-                obj.semi_latus = Math.pow(obj.semi_minor, 2) / obj.semi_major;
-                obj.perihelion = obj.semi_latus / (1 + obj.eccentricity * Math.cos(0));
-                obj.aphelion = obj.semi_latus / (1 + obj.eccentricity * Math.cos(180));
-
-                obj.vertices = [];
-                obj.indices = [];
-
-                for(let i = 0; i <= stack * 2; i++){
-                    let theta = i * Math.PI / stack;
-                    let sinTheta = Math.sin(theta);
-                    let cosTheta = Math.cos(theta);
-
-                    let x = sinTheta;
-                    let z = cosTheta;
-
-                    obj.vertices.push(obj.semi_major * x);
-                    obj.vertices.push(0);
-                    obj.vertices.push(obj.semi_minor * z);
-
-                    // Generate normal vector (fake)
-                    obj.vertices.push(0);
-                    obj.vertices.push(0);
-                    obj.vertices.push(0);
-
-                    // Generate texture coordinate (fake)
-                    let u = 1;
-                    let v = 1 - (i / stack);
-                    obj.vertices.push(u);
-                    obj.vertices.push(v * -1);
-
-                    obj.indices.push(i);
-                    if(i == stack * 2){
-                        obj.indices.push(0);
-                    }else{
-                        obj.indices.push(i + 1);
-                    }
-                }
-
-                // Bind buffer
-                obj.vbo = gl.createBuffer();
-                obj.ebo = gl.createBuffer();
-                gl.bindBuffer(gl.ARRAY_BUFFER, obj.vbo);
-                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(obj.vertices), gl.STATIC_DRAW);
-                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, obj.ebo);
-                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(obj.indices), gl.STATIC_DRAW);
-                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
-                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
-                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
             }
 
             function genSphereBuffer(obj, radius, lati, long){
@@ -1155,13 +1013,6 @@
 
                     earth.orbital_angle += (earth.speed / earth.orbital_period * deltaFrame) / 1000.0;
                     limitTo360Deg(earth, "orbital_angle");
-
-                    sun.rotate_angle += (earth.speed / sun.rotate_period * deltaFrame) / 1000.0;
-                    limitTo360Deg(sun, "rotate_angle");
-
-                    space.obliquity += 0.5 * deltaFrame / 1000.0;
-                    space.rotate_angle += (earth.speed / space.rotate_period * deltaFrame) / 1000.0;
-                    limitTo360Deg(space, "rotate_angle");
                 }
                 lastFrame = currentFrame;
             }
@@ -1181,52 +1032,11 @@
                     error.log("Unknow type error!");
                 }
             }
-
-            function darwRing(object){
-                isShowTexture = true;
-                color = vec3.set(vec3.create(), 0.8, 0.8, 0.6);
-                pushMatrix('model');
-                    gl.activeTexture(gl.TEXTURE0);
-                    gl.bindTexture(gl.TEXTURE_2D, object.texture);
-                    gl.activeTexture(gl.TEXTURE1);
-                    gl.bindTexture(gl.TEXTURE_2D, object.texture);
-                    gl.bindBuffer(gl.ARRAY_BUFFER, object.vbo);
-                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.ebo);
-                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
-                    gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
-                    setMatrixUniforms('shaderProgram');
-                    gl.drawElements(gl.TRIANGLES, object.indices.length, gl.UNSIGNED_SHORT, 0);
-                popMatrix('model');
-                isShowTexture = true;
-            }
-
-            function darwOrbit(object){
-                if(orbitOff){
-                    isShowTexture = false;
-                    color = vec3.set(vec3.create(), 0.8, 0.8, 0.6);
-                    pushMatrix('model');
-                        gl.bindBuffer(gl.ARRAY_BUFFER, object.vbo);
-                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, object.ebo);
-                        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
-                        gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
-                        gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
-                        setMatrixUniforms('shaderProgram');
-                        gl.drawElements(gl.LINES, object.indices.length, gl.UNSIGNED_SHORT, 0);
-                    popMatrix('model');
-                    isShowTexture = true;
-                }
-            }
             
-            function drawSphere(object, neverShowAxis = false, specular = false, normal = false){
+            function drawSphere(object, neverShowAxis = false){
                 pushMatrix('model');
 
-                    // 如果是繪製太陽將會特別備註 (因為太陽會自發光)
-                    if(object.type == "star"){
-                        isRenderingSun = true;
-                    }else{
-                        isRenderingSun = false;
-                    }
+
 
                     // 載入貼圖
                     gl.activeTexture(gl.TEXTURE0);
@@ -1316,30 +1126,7 @@
                 
                 mat4.identity(topMatrix('model'));
 
-                // 繪製天空盒（使用Cubemap）
-                isCubeMap = true;
-                isRenderingSpace = true;
-                gl.depthFunc(gl.LEQUAL);
-                gl.activeTexture(gl.TEXTURE2);
-                gl.bindTexture(gl.TEXTURE_CUBE_MAP, cube.texture);
                 pushMatrix('model');
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(space.obliquity), [1, 0, 0]);
-                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(space.rotate_angle), [0, 1, 0]);
-                    drawCube();
-                popMatrix('model');
-                gl.depthFunc(gl.LESS);
-                isRenderingSpace = false;
-                isCubeMap = false;
-
-                // 繪製太陽
-                pushMatrix('model');
-                    mat4.translate(topMatrix('model'), topMatrix('model'), sun.position);
-                    pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.obliquity), [-1, 0, 0]);
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(sun.rotate_angle), [0, 1, 0]);
-                        drawSphere(sun);
-                    popMatrix('model');
-
                     // 地球
                     pushMatrix('model');
                         mat4.translate(topMatrix('model'), topMatrix('model'), [earth.orbit.semi_major - earth.orbit.perihelion, 0, 0]);
@@ -1396,9 +1183,6 @@
                     resize(gl);
                 });
 
-
-                cube.texture = loadCubeMap("/WebGL/images/CubeMap/universe", "png");
-                sun.texture = loadTexture("/WebGL/images/SolarSystem/sun.jpg");
                 earth.texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_daytime.jpg");
                 earth.specular_texture = loadTexture("/WebGL/images/SolarSystem/earth/2k_earth_specular_map.tif");
                 earth.normal_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_bump.png");
