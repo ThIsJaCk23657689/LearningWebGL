@@ -88,6 +88,29 @@
         </div>
     </div>
 
+    <script id="vertex-light" type="x-shader/x-vertex">
+        precision mediump float;
+        
+        attribute vec3 aVertexPosition;
+
+        uniform mat4 model;
+        uniform mat4 view;
+        uniform mat4 projection;
+
+        void main(void) {
+            gl_Position = projection * view * model* vec4(aVertexPosition, 1.0);
+        }
+    </script>
+    <script id="fragment-light" type="x-shader/x-fragment">
+        precision mediump float;
+
+        uniform vec3 color;
+
+    	void main(void) {
+            gl_FragColor = vec4(color, 1.0);
+        }
+    </script>
+
     <script id="vertex" type="x-shader/x-vertex">
         precision mediump float;
         
@@ -102,24 +125,21 @@
 
         varying vec2 TexCoord;
         varying vec3 Normal;
-        varying vec3 FragPos
-        varying vec3 ViewDir;
+        varying vec3 FragPos;
         
         void main(void) {
-            mat4 ModelViewMatrix = view * model;
+
             TexCoord = aTextureCoord;
             Normal = normalize(normalModel * aNormal);
-            
-            FragPos = vec3(ModelViewMatrix * vec4(aVertexPosition, 1.0));
-            ViewDir = -FragPos;
+            FragPos = vec3(view * model * vec4(aVertexPosition, 1.0));
         
-            gl_Position = projection * ModelViewMatrix * vec4(aVertexPosition, 1.0);
+            gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
         }
     </script>
     <script id="fragment" type="x-shader/x-fragment">
-        #define MAX_LIGHT 4;
-        #extension GL_OES_standard_derivatives : enable;
-        #extension GL_EXT_shader_texture_lod : enable;
+        #define MAX_LIGHT 1
+        #extension GL_OES_standard_derivatives : enable
+        #extension GL_EXT_shader_texture_lod : enable
         precision mediump float;
 
         struct Material {
@@ -138,7 +158,7 @@
 
         struct Light {
             vec4 position;
-            vec3 direction;
+            vec4 direction;
 
             vec4 ambient;
             vec4 diffuse;
@@ -157,8 +177,7 @@
         
         varying vec2 TexCoord;
         varying vec3 Normal;
-        varying vec3 FragPos
-        varying vec3 ViewDir;
+        varying vec3 FragPos;
 
         uniform bool useLighting;
         uniform bool useDiffuseTexture;
@@ -176,6 +195,21 @@
         // 如果小於 0.001 的數值就當作是 0。
         bool isZero(float number) {
             return abs(number) <= 1e-3;
+        }
+
+        // 轉置矩陣
+        mat3 transpose(in mat3 matrix) {
+            vec3 r0 = matrix[0];
+            vec3 r1 = matrix[1];
+            vec3 r2 = matrix[2];
+
+            mat3 result = mat3(
+                vec3(r0.x, r1.x, r2.x),
+                vec3(r0.y, r1.y, r2.y),
+                vec3(r0.z, r1.z, r2.z)
+            );
+
+            return result;
         }
 
         mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv) {
@@ -224,7 +258,7 @@
 
         vec3 perturb_normal(mat3 TBN, vec2 TexCoord) {
             // 透過 TexCoord 來取得對應的 Normal index
-            vec3 texture_normal = texture2D(material.normal, TexCoord).xyz;
+            vec3 texture_normal = texture2D(material.normal_texture, TexCoord).xyz;
             
             // 將 0~255 值映射到 -1 與 1 之間。
             // texture_normal = texture_normal * 2.0 - 1.0;
@@ -236,16 +270,28 @@
             return TBN * texture_normal;
         }
 
-        vec4 calcLight(Light light, Material material, vec3 norm, vec3 lightDir, vec3 spotDir, float distance, vec3 viewDir, vec3 halfway, vec4 texel, float shininess) {
+        vec4 calcLight(Light light, Material material, vec3 norm, vec4 texel, vec2 texcoord) {
+            vec4 lightPos = view * light.position;
+            vec3 lightDir = normalize(lightPos.xyz - FragPos.xyz);
             float diff = max(dot(norm, lightDir), 0.0);
-            float spec = pow(max(dot(half, norm), 0.0), shininess);
 
-            vec4 diffuse = diff * light.diffuse * material.diffuse * texel;
-            vec4 specular = vec4(spec * light.specular.rgb * material.specular.rgb, 1.0);
+            vec3 ViewDir = normalize(-FragPos);
+            vec3 halfway = normalize(ViewDir + lightDir);
+
+            float shininess = material.shininess;
+            if (useSpecularTexture) {
+                shininess = shininess * texture2D(material.specular_texture, texcoord).r;
+            }
+
+            float spec = pow(max(dot(norm, halfway), 0.0), shininess);
+
+            float distance = length(lightPos.xyz - FragPos.xyz);
+            float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * distance * distance);
+                
             vec4 ambient = light.ambient * material.ambient * texel;
-
-            float = attenuation = 1.0;
-            attenuation = attenuation / (light.constant + light.linear * distance + light.quadratic * distance * distance);
+            vec4 diffuse = light.diffuse * diff * material.diffuse * texel;
+            vec4 specular = light.specular * spec * material.specular;
+        
             return ambient + (diffuse + specular) * attenuation;
         }
 
@@ -256,9 +302,11 @@
             vec2 texture_coordinate = vec2(0.0);
             vec4 texel = vec4(0.0);
 
+            vec3 ViewDir = normalize(-FragPos);
+
             // 如果有啟用 凹凸貼圖 => 重新計算材質座標
+            int parallaxStep = 64;
             if (useParallaxTexture) {
-                int parallaxStep = 64;
                 texture_coordinate = parallax_uv(material.parallax_texture, TexCoord, -ViewDir, parallaxStep, depthScale);
             } else {
                 texture_coordinate = TexCoord;
@@ -300,33 +348,12 @@
                         continue;
                     }
 
-                    vec4 lightPos = view * lights[i].position;
-                    vec3 lightDir = lightPos.xyz + ViewDir.xyz;
-                    float distance = length(lightDir);
-                    lightDir = normalize(lightDir);
-
-                    vec3 spotDir = lightDir;
-                    if (!isZero(length(lights[i].direction.xyz))) {
-                        spotDir = normalize(-(view * lights[i].direction).xyz);
-                    }
-
-                    if (!isZero(length(lights[i].position.w))) {
-                        lightDir = spotDir;
-                    }
-
-                    vec3 viewDir = normalize(ViewDir);
-                    vec3 halfway = normalize(viewDir + lightDir);
-
-                    float shininess = material.shininess;
-                    if (useSpecularTexture) {
-                        shininess = shininess * texture2D(material.specular_texture, TexCoord).r;
-                    }
-
-                    illumination += clamp(calcLight(lights[i], material, norm, lightDir, spotDir, distance, viewDir, halfway, texel, shininess).rgb, 0.0, 1.0);
+                    illumination += clamp(calcLight(lights[i], material, norm, texel, texture_coordinate).rgb, 0.0, 1.0);
+                    // illumination = texel.rgb;
                 }
 
                 if (useEmissionTexture) {
-                    illumination += texture2D(material.emission, texture_coordinate).rgb;
+                    illumination += texture2D(material.emission_texture, texture_coordinate).rgb;
                 }
 
                 if(texel.a < 0.1) {
@@ -348,46 +375,20 @@
 
             let cube = {};
             let sphere = {};
-            let wall = {};
+            let plane = {};
 
             let lightSources = [];
-            let lightParameters = [
-                "position",
-                "direction",
-
-                "ambient",
-                "diffuse",
-                "specular",
-
-                "cutOff",
-                "outerCutOff",
-                "exponent",
-
-                "constant",
-                "linear",
-                "quadratic",
-
-                "enable"
-            ];
-            let lightNum = 4;
-
-            let materialParameters = [
-                "ambient",
-                "diffuse",
-                "specular",
-                "emission",
-                "shininess"
-            ];
-
+            let lightNum = 1;
 
             // 物件比例尺與各參數設定:
-            let earth = {};
-            
+            let earth = {
+                "rotate_angle": 0,
+            };
             earth.speed = 1;
 
             // 攝影機參數
             let camera = {};
-            camera.position = vec3.set(vec3.create(), 458, 0, 263);
+            camera.position = vec3.set(vec3.create(), 0, 0, 70);
             camera.direction = vec3.set(vec3.create(), 0, 0, -1);
             camera.traget = vec3.create();
             camera.worldUp = vec3.set(vec3.create(), 0, 1, 0);
@@ -398,33 +399,46 @@
             camera.pitch = 0;
             camera.yaw = 0;
 
-            let color = vec3.set(vec3.create(), 1, 0.2, 0.3);
+            let color = vec3.set(vec3.create(), 1.0, 0.0, 0.0);
 
             let shaderProgram;
 
-            let matrix_modes= ['view', 'model', 'projection', 'texture', 'color'];
             let Matries = [];
+            let matrix_modes= ['view', 'model', 'projection', 'texture', 'color'];
+            let special_matrix = {
+                "ModelView": {
+                    "getMatrix": function() {
+                        let result = mat4.multiply(mat4.create(), topMatrix('view'), topMatrix('model'));
+                        return result;
+                    }
+                },
+                "Normal(Model)": {
+                    "getMatrix": function() {
+                        let result = mat3.normalFromMat4(mat3.create(), topMatrix('model'));
+                        return result;
+                    }
+                },
+                "Normal(ModelView)": {
+                    "getMatrix": function() {
+                        let result = mat3.normalFromMat4(mat3.create(), topMatrix('ModelView'));
+                        return result;
+                    }
+                },
+            };
 
             let currentPressedKeys = {};
 
             let currentFrame = new Date().getTime();
             let lastFrame = 0;
             let deltaFrame = 0;
-            
-            let lightingModels = [
-                {
-                    id: 0,
-                    name: 'No Lighting'
-                },
-                {
-                    id: 1,
-                    name: 'Phong Lighting'
-                },
-                {
-                    id: 2,
-                    name: 'Blinn-Phong Lighting'
-                }
-            ];
+
+            let useLighting = true;
+            let useDiffuseTexture = true;
+            let useSpecularTexture = true;
+            let useNormalTexture = true;
+            let useParallaxTexture = false;
+            let useEmissionTexture = true;
+            let axisOff = true;
 
             function initGL(canvas) {
                 try {
@@ -525,22 +539,30 @@
                 shaderProgram.material.parallax_texture = gl.getUniformLocation(shaderProgram, 'material.parallax_texture');
                 shaderProgram.material.emission_texture = gl.getUniformLocation(shaderProgram, 'material.emission_texture');
 
-                shaderProgram.light = [];
+                shaderProgram.lights = [];
                 for (let i = 0; i < lightNum; i++) {
-                    shaderProgram.light[i] = {};
-                    shaderProgram.light[i].position = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].position');
-                    shaderProgram.light[i].direction = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].direction');
-                    shaderProgram.light[i].ambient = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].ambient');
-                    shaderProgram.light[i].diffuse = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].diffuse');
-                    shaderProgram.light[i].specular = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].specular');
-                    shaderProgram.light[i].cutOff = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].cutOff');
-                    shaderProgram.light[i].outerCutOff = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].outerCutOff');
-                    shaderProgram.light[i].exponent = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].exponent');
-                    shaderProgram.light[i].constant = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].constant');
-                    shaderProgram.light[i].linear = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].linear');
-                    shaderProgram.light[i].quadratic = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].quadratic');
-                    shaderProgram.light[i].enable = gl.getUniformLocation(shaderProgram, 'light.[' + i + '].enable');
+                    shaderProgram.lights[i] = {};
+                    shaderProgram.lights[i].position = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].position');
+                    shaderProgram.lights[i].direction = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].direction');
+                    shaderProgram.lights[i].ambient = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].ambient');
+                    shaderProgram.lights[i].diffuse = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].diffuse');
+                    shaderProgram.lights[i].specular = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].specular');
+                    shaderProgram.lights[i].cutOff = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].cutOff');
+                    shaderProgram.lights[i].outerCutOff = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].outerCutOff');
+                    shaderProgram.lights[i].exponent = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].exponent');
+                    shaderProgram.lights[i].constant = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].constant');
+                    shaderProgram.lights[i].linear = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].linear');
+                    shaderProgram.lights[i].quadratic = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].quadratic');
+                    shaderProgram.lights[i].enable = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].enable');
                 }
+
+                shaderProgram2 = createProgram('vertex-light', 'fragment-light');
+                gl.useProgram(shaderProgram2);
+                shaderProgram2.vertexPositionAttribute = gl.getAttribLocation(shaderProgram2, 'aVertexPosition');
+                shaderProgram2.model = gl.getUniformLocation(shaderProgram2, 'model');
+                shaderProgram2.view = gl.getUniformLocation(shaderProgram2, 'view');
+                shaderProgram2.projection = gl.getUniformLocation(shaderProgram2, 'projection');
+                shaderProgram2.color = gl.getUniformLocation(shaderProgram2, 'color');
             }
 
             // Loading textures
@@ -645,6 +667,23 @@
                 return texture;
             }
 
+            function initTextures() {
+                earth.diffuse_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_daytime.jpg");
+                earth.specular_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_specular.gif");
+                earth.normal_texture = loadTexture("/WebGL/images/SolarSystem/earth/2k_earth_bump.png");
+                earth.depth_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_depth.png");
+                earth.emission_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_nightmap.jpg");
+                // earth.cloud.texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_clouds.png");
+
+                cube.diffuse_texture = loadTexture("/WebGL/images/SpecialTextures/crate/crate.gif");
+                cube.normal_texture = loadTexture("/WebGL/images/SpecialTextures/crate/crate_bump.png");
+                cube.depth_texture = loadTexture("/WebGL/images/SpecialTextures/crate/crate_depth.png");
+
+                plane.diffuse_texture = loadTexture("/WebGL/images/SpecialTextures/wall/floor.png");
+                plane.normal_texture = loadTexture("/WebGL/images/SpecialTextures/wall/floor_bump.png");
+                plane.depth_texture = loadTexture("/WebGL/images/SpecialTextures/wall/floor_depth.png");
+            }
+
             function initMatrix() {
                 for(let i = 0; i < matrix_modes.length; i++) {
                     Matries[matrix_modes[i]] = [mat4.create()];
@@ -652,6 +691,9 @@
             }
 
             function topMatrix(matrix_mode) {
+                if (special_matrix[matrix_mode] && typeof special_matrix[matrix_mode].getMatrix == "function") {
+                    return special_matrix[matrix_mode].getMatrix();
+                }
                 return Matries[matrix_mode][Matries[matrix_mode].length - 1];
             }
 
@@ -668,57 +710,62 @@
                 Matries[matrix_mode].pop();
             }
 
+            function deg2Rad(degrees) {
+                return degrees * Math.PI / 180;
+            }
+
             function setMatrixUniforms(type = 'shaderProgram') {
                 if (type == 'shaderProgram') {
                     gl.useProgram(shaderProgram);
                     gl.uniformMatrix4fv(shaderProgram.model, false, topMatrix('model'));
                     gl.uniformMatrix4fv(shaderProgram.view, false, topMatrix('view'));
                     gl.uniformMatrix4fv(shaderProgram.projection, false, topMatrix('projection'));
-                    // let modelview = mat4.multiply(mat4.create(), topMatrix('model'), topMatrix('view'));
-                    gl.uniformMatrix3fv(shaderProgram.normalModel, false, mat3.normalFromMat4(mat3.create(), topMatrix('model')));
-                    gl.uniform3fv(shaderProgram.color, color);
-                    gl.uniform1i(shaderProgram.enableTexture, isShowTexture);
-                    gl.uniform3fv(shaderProgram.viewPos, camera.position);
-                    gl.uniform1i(shaderProgram.isRenderingSun, isRenderingSun);
-                    gl.uniform1i(shaderProgram.isRenderingSpace, isRenderingSpace);
-                    gl.uniform1i(shaderProgram.isRenderingEarth, isRenderingEarth);
-                    gl.uniform1i(shaderProgram.currentLighting, currentLighting);
+                    gl.uniformMatrix3fv(shaderProgram.normalModel, false, topMatrix('Normal(ModelView)'));
 
-                    gl.uniform1i(shaderProgram.material.diffuse, 0);
-                    gl.uniform1i(shaderProgram.material.specular, 1);
-                    gl.uniform1i(shaderProgram.material.normal, 3);
-                    gl.uniform1f(shaderProgram.material.shininess, 64.0);
+                    gl.uniform1b(shaderProgram.useLighting, useLighting);
+                    gl.uniform1b(shaderProgram.useDiffuseTexture, useDiffuseTexture);
+                    gl.uniform1b(shaderProgram.useSpecularTexture, useSpecularTexture);
+                    gl.uniform1b(shaderProgram.useNormalTexture, useNormalTexture);
+                    gl.uniform1b(shaderProgram.useParallaxTexture, useParallaxTexture);
+                    gl.uniform1b(shaderProgram.useEmissionTexture, useEmissionTexture);
 
-                    gl.uniform3fv(shaderProgram.light.position, sun.position);
-                    gl.uniform3fv(shaderProgram.light.ambient, vec3.set(vec3.create(), 0.02, 0.02, 0.02));
+                    // gl.uniform1i(shaderProgram.material.diffuse, 0);
+                    // gl.uniform1i(shaderProgram.material.specular, 1);
+                    // gl.uniform1i(shaderProgram.material.normal, 3);
+                    // gl.uniform1f(shaderProgram.material.shininess, 64.0);
+
+                    // gl.uniform3fv(shaderProgram.light.position, sun.position);
+                    // gl.uniform3fv(shaderProgram.light.ambient, vec3.set(vec3.create(), 0.02, 0.02, 0.02));
                     // gl.uniform3fv(shaderProgram.light.ambient, vec3.set(vec3.create(), 0.8, 0.8, 0.8));
-                    gl.uniform3fv(shaderProgram.light.diffuse, vec3.set(vec3.create(), 0.8, 0.8, 0.8));
-                    gl.uniform3fv(shaderProgram.light.specular, vec3.set(vec3.create(), 0.2, 0.3, 0.2));
+                    // gl.uniform3fv(shaderProgram.light.diffuse, vec3.set(vec3.create(), 0.8, 0.8, 0.8));
+                    // gl.uniform3fv(shaderProgram.light.specular, vec3.set(vec3.create(), 0.2, 0.3, 0.2));
 
-                    gl.uniform1f(shaderProgram.light.constant, 1.0);
-                    gl.uniform1f(shaderProgram.light.linear, 0.00000000014);
-                    gl.uniform1f(shaderProgram.light.quadratic, 0.000000009);     
+                    // gl.uniform1f(shaderProgram.light.constant, 1.0);
+                    // gl.uniform1f(shaderProgram.light.linear, 0.00000000014);
+                    // gl.uniform1f(shaderProgram.light.quadratic, 0.000000009);     
 
-                    gl.uniform1i(shaderProgram.isCubeMap, isCubeMap);
-                    gl.uniform1i(shaderProgram.skybox, 2);
+                    // gl.uniform1i(shaderProgram.isCubeMap, isCubeMap);
+                    // gl.uniform1i(shaderProgram.skybox, 2);
+                } else if (type == 'shaderProgram2') {
+                    gl.useProgram(shaderProgram2);
+                    gl.uniformMatrix4fv(shaderProgram2.model, false, topMatrix('model'));
+                    gl.uniformMatrix4fv(shaderProgram2.view, false, topMatrix('view'));
+                    gl.uniformMatrix4fv(shaderProgram2.projection, false, topMatrix('projection'));
+                    gl.uniform3fv(shaderProgram2.color, color);
                 } else {
                     console.error('ERROR：The shader program type is unknow.');
                 }
             }
 
-            function deg2Rad(degrees) {
-                return degrees * Math.PI / 180;
-            }
-
             function initLighting() {
                 for (let i = 0; i < lightNum; i++) {
                     lightSources[i] = {
-                        position: [0.0, 0.0, 0.0, 1.0],
-                        direction: [0.0, 0.0, 1.0, 0.0],
+                        position: vec4.set(vec4.create(), 150.0, 0.0, 50.0, 1.0),
+                        direction: vec4.set(vec4.create(), 0.0, 0.0, 1.0, 0.0),
 
-                        ambient: [0.3, 0.3, 0.3, 1.0],
-                        diffuse: [0.0, 0.0, 0.0, 1.0],
-                        specular: [0.8, 0.8, 0.8, 1.0],
+                        ambient: vec4.set(vec4.create(), 0.1, 0.1, 0.1, 1.0),
+                        diffuse: vec4.set(vec4.create(), 0.7, 0.7, 0.7, 1.0),
+                        specular: vec4.set(vec4.create(), 0.4, 0.4, 0.4, 1.0),
 
                         cutOff: deg2Rad(10.0),
                         outerCutOff: deg2Rad(18.0),
@@ -729,43 +776,75 @@
                         quadratic: 0.0,
 
                         enable: i == 0,
+                        velocity: vec4.set(vec4.create(), 0, 0, 100, 0)
                     }
                 }
+                console.log(lightSources);
             }
 
-            function updateLighting(shaderProgram) {
+            function updateLighting() {
                 for (let i = 0; i < lightNum; i++) {
-                    gl.uniform4fv(shaderProgram.light[i].position, lightSources[i].position);
-                    gl.uniform4fv(shaderProgram.light[i].direction, lightSources[i].direction);
-                    gl.uniform4fv(shaderProgram.light[i].ambient, lightSources[i].ambient);
-                    gl.uniform4fv(shaderProgram.light[i].diffuse, lightSources[i].diffuse);
-                    gl.uniform4fv(shaderProgram.light[i].specular, lightSources[i].specular);
-                    gl.uniform1f(shaderProgram.light[i].cutOff, lightSources[i].cutOff);
-                    gl.uniform1f(shaderProgram.light[i].outerCutOff, lightSources[i].outerCutOff);
-                    gl.uniform1f(shaderProgram.light[i].exponent, lightSources[i].exponent);
-                    gl.uniform1f(shaderProgram.light[i].constant, lightSources[i].constant);
-                    gl.uniform1f(shaderProgram.light[i].linear, lightSources[i].linear);
-                    gl.uniform1f(shaderProgram.light[i].quadratic, lightSources[i].quadratic);
-                    gl.uniform1b(shaderProgram.light[i].enable, lightSources[i].enable);
+                    gl.useProgram(shaderProgram);
+                    gl.uniform4fv(shaderProgram.lights[i].position, lightSources[i].position);
+                    gl.uniform4fv(shaderProgram.lights[i].direction, lightSources[i].direction);
+                    gl.uniform4fv(shaderProgram.lights[i].ambient, lightSources[i].ambient);
+                    gl.uniform4fv(shaderProgram.lights[i].diffuse, lightSources[i].diffuse);
+                    gl.uniform4fv(shaderProgram.lights[i].specular, lightSources[i].specular);
+                    
+                    gl.uniform1f(shaderProgram.lights[i].cutOff, lightSources[i].cutOff);
+                    gl.uniform1f(shaderProgram.lights[i].outerCutOff, lightSources[i].outerCutOff);
+                    gl.uniform1f(shaderProgram.lights[i].exponent, lightSources[i].exponent);
+                    
+                    gl.uniform1f(shaderProgram.lights[i].constant, lightSources[i].constant);
+                    gl.uniform1f(shaderProgram.lights[i].linear, lightSources[i].linear);
+                    gl.uniform1f(shaderProgram.lights[i].quadratic, lightSources[i].quadratic);
+                    
+                    gl.uniform1b(shaderProgram.lights[i].enable, lightSources[i].enable);
                 }
             }
 
             function initMaterial() {
-                material = {
-                    ambient: [1.0, 1.0, 1.0, 1.0],
-                    diffuse: [1.0, 1.0, 1.0, 1.0],
-                    specular: [0.7, 0.7, 0.7, 1.0],
-                    emission: [0.0, 0.0, 0.0, 1.0],
-                    shininess: 32
-                }
+                cube.material = {
+                    ambient: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
+                    diffuse: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
+                    specular: vec4.set(vec4.create(), 0.3, 0.3, 0.3, 1.0),
+                    emission: vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0),
+                    shininess: 255,
+                    depthScale: 0.01
+                };
+                plane.material = {
+                    ambient: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
+                    diffuse: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
+                    specular: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
+                    emission: vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0),
+                    shininess: 255,
+                    depthScale: 0.05
+                };
+                earth.material = {
+                    ambient: vec4.set(vec4.create(), 0.2, 0.2, 0.2, 1.0),
+                    diffuse: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
+                    specular: vec4.set(vec4.create(), 0.3, 0.3, 0.3, 1.0),
+                    emission: vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0),
+                    shininess: 512,
+                    depthScale: 0.01
+                };
             }
             
-            function updateMaterial(shaderProgram) {
-                gl.uniform4fv(shaderProgram.material.ambient, lightSources[i].position);
-                gl.uniform4fv(shaderProgram.material.diffuse, lightSources[i].direction);
-                gl.uniform4fv(shaderProgram.material.specular, lightSources[i].ambient);
-                gl.uniform4fv(shaderProgram.material.emission, lightSources[i].diffuse);
-                gl.uniform1f(shaderProgram.material.shininess, lightSources[i].cutOff);
+            function updateMaterial(current_material) {
+                gl.useProgram(shaderProgram);
+                gl.uniform4fv(shaderProgram.material.ambient, current_material.ambient);
+                gl.uniform4fv(shaderProgram.material.diffuse, current_material.diffuse);
+                gl.uniform4fv(shaderProgram.material.specular, current_material.specular);
+                gl.uniform4fv(shaderProgram.material.emission, current_material.emission);
+                gl.uniform1f(shaderProgram.material.shininess, current_material.shininess);
+
+                gl.uniform1i(shaderProgram.material.diffuse_texture, 0);
+                gl.uniform1i(shaderProgram.material.specular_texture, 1);
+                gl.uniform1i(shaderProgram.material.normal_texture, 2);
+                gl.uniform1i(shaderProgram.material.depth_texture, 3);
+                gl.uniform1i(shaderProgram.material.emission_texture, 4);
+
+                gl.uniform1f(shaderProgram.depthScale, current_material.depthScale);
             }
 
             function initBuffers() {
@@ -826,8 +905,27 @@
                 gl.enableVertexAttribArray(shaderProgram.normalAttribute);
                 gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
 
+                plane.vertices = [
+                    -1.0,  1.0,  0.0,   0.0, 0.0, 1.0,    0.0, 1.0,
+                     1.0,  1.0,  0.0,   0.0, 0.0, 1.0,    1.0, 1.0,
+                    -1.0,  1.0,  0.0,   0.0, 0.0, 1.0,    1.0, 0.0,
+                    -1.0, -1.0,  0.0,   0.0, 0.0, 1.0,    0.0, 0.0, 
+                ];
+                plane.indices = [
+                    0, 1, 2,    0, 2, 3
+                ];
+                plane.vbo = gl.createBuffer();
+                plane.ebo = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, plane.vbo);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(plane.vertices), gl.STATIC_DRAW);
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, plane.ebo);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(plane.indices), gl.STATIC_DRAW);
+                gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+                gl.enableVertexAttribArray(shaderProgram.normalAttribute);
+                gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
+
                 // genSphereBuffer(sphere, 1, 30, 30);
-                genSphereBuffer(earth, 100 * 0.99, 30, 30);
+                genSphereBuffer(earth, 10, 30, 30);
                 // genSphereBuffer(earth.cloud, 100, 30, 30);
 
                 initMatrix();
@@ -858,8 +956,6 @@
                         obj.vertices.push(obj.radius * z);
 
                         // Generate normal vector
-                        // let temp = vec3.set(vec3.create(), 2 * obj.radius * x , 2 * obj.radius * y, 2 * obj.radius * z);
-                        // let normal = vec3.normalize(vec3.create(), temp);
                         obj.vertices.push(x);
                         obj.vertices.push(y);
                         obj.vertices.push(z);
@@ -910,24 +1006,6 @@
                         axisOff = false;
                     }else{
                         axisOff = true;
-                    }
-                }
-
-                // G
-                if(currentPressedKeys[71]){
-                    if(orbitOff){
-                        orbitOff = false;
-                    }else{
-                        orbitOff = true;
-                    }
-                }
-
-                // L
-                if(currentPressedKeys[76]){
-                    if(currentLighting == 2){
-                        currentLighting = 0;
-                    }else{
-                        currentLighting += 1;
                     }
                 }
 
@@ -1053,14 +1131,12 @@
 
             function animate() {
                 currentFrame = new Date().getTime();
+                
                 if(lastFrame != 0) {
                     deltaFrame = currentFrame - lastFrame;
 
                     earth.rotate_angle += (earth.speed * deltaFrame) / 1000.0;
                     limitTo360Deg(earth, "rotate_angle");
-
-                    earth.orbital_angle += (earth.speed / earth.orbital_period * deltaFrame) / 1000.0;
-                    limitTo360Deg(earth, "orbital_angle");
                 }
                 lastFrame = currentFrame;
             }
@@ -1083,30 +1159,21 @@
             
             function drawSphere(object, neverShowAxis = false){
                 pushMatrix('model');
-
-
-
                     // 載入貼圖
                     gl.activeTexture(gl.TEXTURE0);
-                    gl.bindTexture(gl.TEXTURE_2D, object.texture);
+                    gl.bindTexture(gl.TEXTURE_2D, object.diffuse_texture);
 
-                    // 此球體是否包含 specular texture，統一綁定在 texture1。
-                    if(specular){
-                        gl.activeTexture(gl.TEXTURE1);
-                        gl.bindTexture(gl.TEXTURE_2D, object.specular_texture);
-                    }else{
-                        gl.activeTexture(gl.TEXTURE1);
-                        gl.bindTexture(gl.TEXTURE_2D, object.texture);
-                    }
+                    gl.activeTexture(gl.TEXTURE1);
+                    gl.bindTexture(gl.TEXTURE_2D, object.specular_texture ?? null);
 
-                    // 此球體是否包含 normal texture，統一綁定在 texture3。
-                    if(normal){
-                        gl.activeTexture(gl.TEXTURE3);
-                        gl.bindTexture(gl.TEXTURE_2D, object.normal_texture);
-                    }else{
-                        gl.activeTexture(gl.TEXTURE3);
-                        gl.bindTexture(gl.TEXTURE_2D, object.texture);
-                    }
+                    gl.activeTexture(gl.TEXTURE2);
+                    gl.bindTexture(gl.TEXTURE_2D, object.normal_texture ?? null);
+
+                    gl.activeTexture(gl.TEXTURE3);
+                    gl.bindTexture(gl.TEXTURE_2D, object.depth_texture ?? null);
+                    
+                    gl.activeTexture(gl.TEXTURE4);
+                    gl.bindTexture(gl.TEXTURE_2D, object.emission_texture ?? null);
 
                     // 開始繪製球體
                     gl.bindBuffer(gl.ARRAY_BUFFER, object.vbo);
@@ -1115,6 +1182,7 @@
                     gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
                     gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
                     setMatrixUniforms('shaderProgram');
+                    updateMaterial(object.material);
                     gl.drawElements(gl.TRIANGLES, object.indices.length, gl.UNSIGNED_SHORT, 0);
                     if(!axisOff && !neverShowAxis){
                         drawAxis(object.radius);
@@ -1124,82 +1192,112 @@
 
             function drawCube(){
                 pushMatrix('model');
+                    // 載入貼圖
+                    gl.activeTexture(gl.TEXTURE0);
+                    gl.bindTexture(gl.TEXTURE_2D, cube.diffuse_texture);
+
+                    gl.activeTexture(gl.TEXTURE1);
+                    gl.bindTexture(gl.TEXTURE_2D, cube.specular_texture ?? null);
+
+                    gl.activeTexture(gl.TEXTURE2);
+                    gl.bindTexture(gl.TEXTURE_2D, cube.normal_texture ?? null);
+
+                    gl.activeTexture(gl.TEXTURE3);
+                    gl.bindTexture(gl.TEXTURE_2D, cube.depth_texture ?? null);
+                        
+                    gl.activeTexture(gl.TEXTURE4);
+                    gl.bindTexture(gl.TEXTURE_2D, cube.emission_texture ?? null);
+
                     gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
                     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
                     gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
                     gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
                     gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
                     setMatrixUniforms('shaderProgram');
+                    updateMaterial(cube.material);
+                    gl.drawElements(gl.TRIANGLES, cube.indices.length, gl.UNSIGNED_SHORT, 0);
+                popMatrix('model');
+            }
+
+            function drawLightCube(){
+                pushMatrix('model');
+                    gl.bindBuffer(gl.ARRAY_BUFFER, cube.vbo);
+                    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cube.ebo);
+                    gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 0);
+                    gl.vertexAttribPointer(shaderProgram.normalAttribute, 3, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 3 * Float32Array.BYTES_PER_ELEMENT);
+                    gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, 2, gl.FLOAT, false, 8 * Float32Array.BYTES_PER_ELEMENT, 6 * Float32Array.BYTES_PER_ELEMENT);
+                    setMatrixUniforms('shaderProgram2');
                     gl.drawElements(gl.TRIANGLES, cube.indices.length, gl.UNSIGNED_SHORT, 0);
                 popMatrix('model');
             }
 
             function drawAxis(radius){
-                isShowTexture = false;
                 let cubesize = radius * 0.025;
                 let offset = radius * 0.25;
                 pushMatrix('model');
                     color = vec3.set(vec3.create(), 1.0, 0.0, 0.0);
                     mat4.translate(topMatrix('model'), topMatrix('model'), [radius / 2 + offset, 0, 0]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [radius / 2 + offset, cubesize, cubesize]);
-                    drawCube();
+                    drawLightCube();
                 popMatrix('model');
                 pushMatrix('model');
                     color = vec3.set(vec3.create(), 0.0, 1.0, 0.0);
                     mat4.translate(topMatrix('model'), topMatrix('model'), [0, radius / 2 + offset, 0]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [cubesize, radius / 2 + offset, cubesize]);
-                    drawCube();
+                    drawLightCube();
                 popMatrix('model');
                 pushMatrix('model');
                     color = vec3.set(vec3.create(), 0.0, 0.0, 1.0);
                     mat4.translate(topMatrix('model'), topMatrix('model'), [0, 0, radius / 2 + offset]);
                     mat4.scale(topMatrix('model'), topMatrix('model'), [cubesize, cubesize, radius / 2 + offset]);
-                    drawCube();
+                    drawLightCube();
                 popMatrix('model');
-                isShowTexture = true;
             }
 
             function drawScene() {
-                gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
                 mat4.identity(topMatrix('projection'));
                 mat4.perspective(topMatrix('projection'), 45, gl.viewportWidth / gl.viewportHeight, 0.1, 20000.0);
                 
                 mat4.identity(topMatrix('view'));
-                let lookAtMatrix = mat4.create(topMatrix('view'));
                 vec3.add(camera.traget, camera.position, camera.direction);
-                mat4.lookAt(lookAtMatrix, camera.position, camera.traget, camera.worldUp);
+                let lookAtMatrix = mat4.lookAt(mat4.create(), camera.position, camera.traget, camera.worldUp);
                 mat4.multiply(topMatrix('view'), topMatrix('view'), lookAtMatrix);
                 
+                updateLighting();
+
                 mat4.identity(topMatrix('model'));
 
+                // drawAxis(10);
+                
                 pushMatrix('model');
-                    // 地球
-                    pushMatrix('model');
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [earth.orbit.semi_major - earth.orbit.perihelion, 0, 0]);
-                        darwOrbit(earth.orbit);
-                    popMatrix('model');
-                    pushMatrix('model');
-                        mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.orbital_angle), [0, 1, 0]);
-                        mat4.translate(topMatrix('model'), topMatrix('model'), [earth.AU, 0, 0]);
-                        // mat4.translate(topMatrix('model'), topMatrix('model'), earth.position);
-                        pushMatrix('model');
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.obliquity), [-1, 0, 0]);
-                            mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle), [0, 1, 0]);
-                            drawSphere(earth, false, true, true);
-                            // mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle), [0, 1, 0]);
-                            // drawSphere(earth.cloud, true);
-                        popMatrix('model');
-                    popMatrix('model');   
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [lightSources[0].position[0], lightSources[0].position[1], lightSources[0].position[2]]);
+                    color = vec3.set(vec3.create(), 1.0, 1.0, 1.0);
+                    drawLightCube();
+                popMatrix('model');
+
+                pushMatrix('model');
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [200, 0, 200]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [20, 20, 20]);
+                    drawCube();
+                popMatrix('model');
+
+                pushMatrix('model');
+                    mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle), [0, 1, 0]);
+                    drawSphere(earth);
                 popMatrix('model');
             }
 
-            function resize(gl) {
+            function reshape() {
 				gl.canvas.width = window.innerWidth;
 				gl.canvas.height = window.innerHeight;
                 gl.viewportWidth = gl.canvas.width;
                 gl.viewportHeight = gl.canvas.height;
+                gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+                mat4.identity(topMatrix('projection'));
+                mat4.perspective(topMatrix('projection'), 45, gl.viewportWidth / gl.viewportHeight, 0.1, 500.0);
             }
 
             function webGLStart() {
@@ -1207,11 +1305,14 @@
                 initGL(canvas);
                 initShaders();
                 initBuffers();
+                initTextures();
+                initMaterial();
+                initLighting();
 
                 gl.clearColor(0.1, 0.1, 0.1, 1.0);
                 gl.enable(gl.DEPTH_TEST);
-                gl.enable(gl.BLEND);
-                gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+                // gl.enable(gl.BLEND);
+                // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
                 document.onkeydown = handleKeyDown;
                 document.onkeyup = handleKeyUp;
@@ -1226,17 +1327,11 @@
                 document.addEventListener('mozpointerlockchange', lockChangeAlert, false);
                 updateCameraStatus();
 
-                resize(gl);
+                reshape();
 		        window.addEventListener('resize', function() {
-                    resize(gl);
+                    reshape();
                 });
 
-                earth.texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_daytime.jpg");
-                earth.specular_texture = loadTexture("/WebGL/images/SolarSystem/earth/2k_earth_specular_map.tif");
-                earth.normal_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_bump.png");
-                earth.depth_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_depth.png");
-                earth.emission_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_nightmap.jpg");
-                earth.cloud.texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_clouds.png");
                 tick();
             }
 
@@ -1279,13 +1374,8 @@
                     }
                 }
 
-                $('#years').text(earth.count.orbit);
-                $('#days').text(earth.count.rotate);
-                $('#speed').text(earth.speed);
                 $('#yaw').text(Math.round(camera.yaw * 10) / 10);
                 $('#pitch').text(Math.round(camera.pitch * 10) / 10);
-
-                $('#lightingModel').text(lightingModels[currentLighting].name);
             }
 
             $('.switch-box').click(function(e){
