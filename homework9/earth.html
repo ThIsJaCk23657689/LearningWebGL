@@ -64,17 +64,60 @@
             <div class="switch-box">
                 Off
             </div>
-            <div class="row">                
+            <div class="row mx-0">
+                <div class="col-md-12">
+                    <form action="#">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" class="custom-control-input" id="useLighting" checked>
+                                    <label class="custom-control-label" for="useLighting">Lighting</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" class="custom-control-input" id="useDiffuseTexture" checked>
+                                    <label class="custom-control-label" for="useDiffuseTexture">Color Map</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" class="custom-control-input" id="useSpecularTexture" checked>
+                                    <label class="custom-control-label" for="useSpecularTexture">Specular Map</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" class="custom-control-input" id="useNormalTexture" checked>
+                                    <label class="custom-control-label" for="useNormalTexture">Normal Map</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" class="custom-control-input" id="useParallaxTexture" checked>
+                                    <label class="custom-control-label" for="useParallaxTexture">Parallax Map</label>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="custom-control custom-switch">
+                                    <input type="checkbox" class="custom-control-input" id="useEmissionTexture" checked>
+                                    <label class="custom-control-label" for="useEmissionTexture">Emission Map</label>
+                                </div>
+                            </div>
+                        </div>                        
+                    </form>
+                </div>                
                 <div class="col-md-12 text-center">
                     <p>
-                        L 切換光照模型，目前是：<span id="lightingModel"></span> <br/>
                         F 開 / 關 XYZ 軸，G 顯示 / 隱藏 軌道 <br/>
                         W / S / A / D 可以移動攝影機；滑鼠移動視角 <br/>
                         C / V 可以 降低 / 提高 轉速 <br/>
                     </p>
                 </div>
                 <div class="col-md-12 mb-2 text-center">
-                    地球公轉: <span id="years">0</span>, 地球自轉: <span id="days">0</span>, 目前轉速：<span id="speed"></span> <br/>
+                    目前轉速：<span id="speed"></span> <br/>
                     camera.position: (<span id="positionX">0</span>, <span id="positionY">0</span>, <span id="positionZ">0</span>) <br/>
                     camera.yaw(X): <span id="yaw">0</span> degree , camera.pitch(Y): <span id="pitch">0</span> degree<br/>
                     camera.direction: (<span id="directionX">0</span>, <span id="directionY">0</span>, <span id="directionZ">0</span>), Facing: <span id="facing">North</span> <br/>
@@ -1008,14 +1051,6 @@
                         axisOff = true;
                     }
                 }
-
-                if(currentPressedKeys[72]){
-                    if(isRenderingEarth){
-                        isRenderingEarth = false;
-                    }else{
-                        isRenderingEarth = true;
-                    }
-                }
             }
 
             function handleKeyUp(event) {
@@ -1376,6 +1411,8 @@
 
                 $('#yaw').text(Math.round(camera.yaw * 10) / 10);
                 $('#pitch').text(Math.round(camera.pitch * 10) / 10);
+
+                $('#speed').text(earth.speed);
             }
 
             $('.switch-box').click(function(e){
@@ -1388,6 +1425,30 @@
                     isInfoPlaneOn = true;
                     $(this).parent().removeClass('hide');
                 }
+            });
+
+            $('#useLighting').change(function(e){
+                useLighting = $(this).prop('checked');
+            });
+
+            $('#useDiffuseTexture').change(function(e){
+                useDiffuseTexture = $(this).prop('checked');
+            });
+
+            $('#useSpecularTexture').change(function(e){
+                useSpecularTexture = $(this).prop('checked');
+            });
+
+            $('#useNormalTexture').change(function(e){
+                useNormalTexture = $(this).prop('checked');
+            });
+
+            $('#useParallaxTexture').change(function(e){
+                useParallaxTexture = $(this).prop('checked');
+            });
+
+            $('#useEmissionTexture').change(function(e){
+                useEmissionTexture = $(this).prop('checked');
             });
 
             webGLStart();
