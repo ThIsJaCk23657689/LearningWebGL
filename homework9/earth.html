@@ -90,19 +90,19 @@
                         <div class="row">
                             <div class="col-md-4">
                                 <div class="custom-control custom-switch">
-                                    <input type="checkbox" class="custom-control-input" id="useNormalTexture" checked>
+                                    <input type="checkbox" class="custom-control-input" id="useNormalTexture">
                                     <label class="custom-control-label" for="useNormalTexture">Normal Map</label>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="custom-control custom-switch">
-                                    <input type="checkbox" class="custom-control-input" id="useParallaxTexture" checked>
+                                    <input type="checkbox" class="custom-control-input" id="useParallaxTexture">
                                     <label class="custom-control-label" for="useParallaxTexture">Parallax Map</label>
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="custom-control custom-switch">
-                                    <input type="checkbox" class="custom-control-input" id="useEmissionTexture" checked>
+                                    <input type="checkbox" class="custom-control-input" id="useEmissionTexture">
                                     <label class="custom-control-label" for="useEmissionTexture">Emission Map</label>
                                 </div>
                             </div>
@@ -173,14 +173,14 @@
         void main(void) {
 
             TexCoord = aTextureCoord;
-            Normal = normalize(normalModel * aNormal);
-            FragPos = vec3(view * model * vec4(aVertexPosition, 1.0));
+            Normal = normalModel * aNormal;
+            FragPos = vec3(model * vec4(aVertexPosition, 1.0));
         
             gl_Position = projection * view * model * vec4(aVertexPosition, 1.0);
         }
     </script>
     <script id="fragment" type="x-shader/x-fragment">
-        #define MAX_LIGHT 1
+        #define NUM_LIGHTS 6
         #extension GL_OES_standard_derivatives : enable
         #extension GL_EXT_shader_texture_lod : enable
         precision mediump float;
@@ -197,212 +197,177 @@
             sampler2D normal_texture;
             sampler2D parallax_texture;
             sampler2D emission_texture;
+
+            bool enableColorTexture;
+            bool enableSpecularTexture;
+            bool enableNormalTexture;
+            bool enableParallaxTexture;
+            bool enableEmissionTexture;
         };
 
         struct Light {
-            vec4 position;
-            vec4 direction;
+            vec3 position;
+            vec3 direction;
 
-            vec4 ambient;
-            vec4 diffuse;
-            vec4 specular;
-
-            float cutOff;
-            float outerCutOff;
-            float exponent;
-
+            vec3 ambient;
+            vec3 diffuse;
+            vec3 specular;
+            
             float constant;
             float linear;
             float quadratic;
 
+            float cutoff;
+            float outerCutoff;
+
             bool enable;
+            int caster;
         };
         
         varying vec2 TexCoord;
         varying vec3 Normal;
         varying vec3 FragPos;
 
+        uniform vec3 viewPos;
         uniform bool useLighting;
         uniform bool useDiffuseTexture;
         uniform bool useSpecularTexture;
         uniform bool useNormalTexture;
         uniform bool useParallaxTexture;
         uniform bool useEmissionTexture;
-        
-        uniform mat4 view;
-        uniform float depthScale;
 
         uniform Material material;
-        uniform Light lights[MAX_LIGHT];
+        uniform Light lights[NUM_LIGHTS];
 
-        // 如果小於 0.001 的數值就當作是 0。
-        bool isZero(float number) {
-            return abs(number) <= 1e-3;
-        }
+        vec3 calcLight(Light light, vec3 normal, vec3 viewDir) {
 
-        // 轉置矩陣
-        mat3 transpose(in mat3 matrix) {
-            vec3 r0 = matrix[0];
-            vec3 r1 = matrix[1];
-            vec3 r2 = matrix[2];
-
-            mat3 result = mat3(
-                vec3(r0.x, r1.x, r2.x),
-                vec3(r0.y, r1.y, r2.y),
-                vec3(r0.z, r1.z, r2.z)
-            );
-
-            return result;
-        }
-
-        mat3 cotangent_frame(vec3 N, vec3 p, vec2 uv) {
-            // get edge vectors of the pixel triangle
-            vec3 dp1 = dFdx(p);
-            vec3 dp2 = dFdy(p);
-            vec2 duv1 = dFdx(uv);
-            vec2 duv2 = dFdy(uv);
-    
-            // solve the linear system
-            vec3 dp2perp = cross(dp2, N);
-            vec3 dp1perp = cross(N, dp1);
-            vec3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-            vec3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-    
-            // construct a scale-invariant frame
-            float invmax = inversesqrt(max(dot(T, T), dot(B, B)));
-            return mat3(T * invmax, B * invmax, N);
-        }
-
-        vec2 parallax_uv(sampler2D tex_depth, vec2 uv, vec3 view_dir, int num_layers, float depth_scale) {
-            float layer_depth = 1.0 / float(num_layers);
-            float current_layer_depth = 0.0;
-            vec2 delta_uv = view_dir.xy * depth_scale / (view_dir.z * float(num_layers));
-            vec2 current_uv = uv;
-
-            float depth_from_texture = texture2D(tex_depth, current_uv).r;
-            for (int i = 0; i < 127; i++) {
-                if (i >= num_layers) {
-                    break;
-                }
-                current_layer_depth += layer_depth;
-                current_uv -= delta_uv;
-                depth_from_texture = texture2D(tex_depth, current_uv).r;
-                if (depth_from_texture < current_layer_depth) {
-                    break;
-                }
-            }
-
-            vec2 prev_uv = current_uv + delta_uv;
-            float next = depth_from_texture - current_layer_depth;
-            float prev = texture2D(tex_depth, prev_uv).r - current_layer_depth + layer_depth;
-            float weight = next / (next - prev);
-            return mix(current_uv, prev_uv, weight);
-        }
-
-        vec3 perturb_normal(mat3 TBN, vec2 TexCoord) {
-            // 透過 TexCoord 來取得對應的 Normal index
-            vec3 texture_normal = texture2D(material.normal_texture, TexCoord).xyz;
+            vec3 ambient = vec3(0.0);
+            vec3 diffuse = vec3(0.0);
+            vec3 specular = vec3(0.0);
             
-            // 將 0~255 值映射到 -1 與 1 之間。
-            // texture_normal = texture_normal * 2.0 - 1.0;
-            texture_normal = texture_normal * 255.0 / 127.0 - 128.0 / 127.0;
+            if (light.caster == 0) {
+                // Direction Light
+                vec3 lightDir = normalize(-light.direction);
+                float diff = max(dot(normal, lightDir), 0.0);
 
-            // 上下顛倒
-            texture_normal.y = -texture_normal.y;
+                vec3 halfway = normalize(lightDir + viewDir);
+                float spec = pow(max(dot(normal, halfway), 0.0), material.shininess);
+                // vec3 reflectDir = reflect(-lightDir, normal);
+                // float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess);
 
-            return TBN * texture_normal;
-        }
+                if (useDiffuseTexture && material.enableColorTexture) {
+                    ambient = light.ambient * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    diffuse = light.diffuse * diff * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    if (useSpecularTexture && material.enableSpecularTexture) {
+                        specular = light.specular * spec * texture2D(material.specular_texture, TexCoord).rgb;
+                    } else {
+                        specular = light.specular * spec * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    }
+                } else {
+                    ambient = light.ambient * material.ambient.rgb;
+                    diffuse = light.diffuse * diff * material.diffuse.rgb;
+                    specular = light.specular * spec * material.specular.rgb;
+                }
+            } else if (light.caster == 1) {
+                // Point Light
+                vec3 lightDir = normalize(light.position - FragPos);
+                float diff = max(dot(normal, lightDir), 0.0);
 
-        vec4 calcLight(Light light, Material material, vec3 norm, vec4 texel, vec2 texcoord) {
-            vec4 lightPos = view * light.position;
-            vec3 lightDir = normalize(lightPos.xyz - FragPos.xyz);
-            float diff = max(dot(norm, lightDir), 0.0);
+                vec3 halfway = normalize(lightDir + viewDir);
+                float spec = pow(max(dot(normal, halfway), 0.0), material.shininess);
 
-            vec3 ViewDir = normalize(-FragPos);
-            vec3 halfway = normalize(ViewDir + lightDir);
+                float distance = length(light.position - FragPos);
+                float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
 
-            float shininess = material.shininess;
-            if (useSpecularTexture) {
-                shininess = shininess * texture2D(material.specular_texture, texcoord).r;
+                if (useDiffuseTexture && material.enableColorTexture) {
+                    ambient = light.ambient * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    diffuse = light.diffuse * diff * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    if (useSpecularTexture && material.enableSpecularTexture) {
+                        specular = light.specular * spec * texture2D(material.specular_texture, TexCoord).rgb;
+                    } else {
+                        specular = light.specular * spec * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    }
+                } else {
+                    ambient = light.ambient * material.ambient.rgb;
+                    diffuse = light.diffuse * diff * material.diffuse.rgb;
+                    specular = light.specular * spec * material.specular.rgb;
+                }
+
+                ambient *= attenuation;
+                diffuse *= attenuation;
+                specular *= attenuation;
+            } else if (light.caster == 2) {
+                // Spot Light
+                vec3 lightDir = normalize(light.position - FragPos);
+                float diff = max(dot(normal, lightDir), 0.0);
+
+                vec3 halfway = normalize(lightDir + viewDir);
+                float spec = pow(max(dot(normal, halfway), 0.0), material.shininess);
+
+                float distance = length(light.position - FragPos);
+                float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
+
+                float theta = dot(lightDir, normalize(-light.direction));
+                float epsilon = light.cutoff - light.outerCutoff;
+                float intensity = clamp((theta - light.outerCutoff) / epsilon, 0.0, 1.0);
+
+                if (useDiffuseTexture && material.enableColorTexture) {
+                    ambient = light.ambient * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    diffuse = light.diffuse * diff * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    if (useSpecularTexture && material.enableSpecularTexture) {
+                        specular = light.specular * spec * texture2D(material.specular_texture, TexCoord).rgb;
+                    } else {
+                        specular = light.specular * spec * texture2D(material.diffuse_texture, TexCoord).rgb;
+                    }
+                } else {
+                    ambient = light.ambient * material.ambient.rgb;
+                    diffuse = light.diffuse * diff * material.diffuse.rgb;
+                    specular = light.specular * spec * material.specular.rgb;
+                }
+
+                ambient *= attenuation * intensity;
+                diffuse *= attenuation * intensity;
+                specular *= attenuation * intensity;
             }
 
-            float spec = pow(max(dot(norm, halfway), 0.0), shininess);
-
-            float distance = length(lightPos.xyz - FragPos.xyz);
-            float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * distance * distance);
-                
-            vec4 ambient = light.ambient * material.ambient * texel;
-            vec4 diffuse = light.diffuse * diff * material.diffuse * texel;
-            vec4 specular = light.specular * spec * material.specular;
-        
-            return ambient + (diffuse + specular) * attenuation;
+            return ambient + diffuse + specular;
         }
 
     	void main(void) {
 
-            // Initial
-            mat3 TBN = mat3(1.0);
-            vec2 texture_coordinate = vec2(0.0);
-            vec4 texel = vec4(0.0);
-
-            vec3 ViewDir = normalize(-FragPos);
-
-            // 如果有啟用 凹凸貼圖 => 重新計算材質座標
-            int parallaxStep = 64;
-            if (useParallaxTexture) {
-                texture_coordinate = parallax_uv(material.parallax_texture, TexCoord, -ViewDir, parallaxStep, depthScale);
+            vec4 texel_diffuse = vec4(0.0);
+            if (useDiffuseTexture && material.enableColorTexture) {
+                texel_diffuse = texture2D(material.diffuse_texture, TexCoord);
             } else {
-                texture_coordinate = TexCoord;
+                texel_diffuse = material.diffuse;
             }
 
-            // 如果沒有啟用 漫射貼圖 => 使用純色(白色)
-            if (useDiffuseTexture) {
-                texel = texture2D(material.diffuse_texture, texture_coordinate);
-            } else {
-                texel = vec4(1.0, 1.0, 1.0, 1.0);
-            }
-
-            // 是否開啟光照
             if (!useLighting) {
-                gl_FragColor = texel;
+                gl_FragColor = texel_diffuse;
             } else {
+                vec3 norm = normalize(Normal);
+                vec3 viewDir = normalize(viewPos - FragPos);
                 vec3 illumination = vec3(0.0);
-                vec3 norm = Normal;
-                mat3 TBN = cotangent_frame(norm, -ViewDir, texture_coordinate);
-                
-                if (useParallaxTexture) {
-                    // TBN 是正交矩陣，它的反矩陣會等於它的轉置矩陣。
-                    mat3 TBN_inverse = transpose(TBN);
-                    texture_coordinate = parallax_uv(material.parallax_texture, TexCoord, normalize(TBN_inverse * (-ViewDir)), parallaxStep, depthScale);
-                    TBN = cotangent_frame(norm, -ViewDir, texture_coordinate);
-                    if (useDiffuseTexture) {
-                        texel = texture2D(material.diffuse_texture, texture_coordinate);
-                    }
-                }
-
-                if (useNormalTexture) {
-                    norm = perturb_normal(TBN, TexCoord);
-                }
-                norm = normalize(norm);
-
-                for (int i = 0; i < MAX_LIGHT; i++) {
-                    
+                for (int i = 0; i < NUM_LIGHTS; i++) {
                     if (!lights[i].enable) {
                         continue;
                     }
-
-                    illumination += clamp(calcLight(lights[i], material, norm, texel, texture_coordinate).rgb, 0.0, 1.0);
-                    // illumination = texel.rgb;
+                    illumination += calcLight(lights[i], norm, viewDir);
                 }
 
                 if (useEmissionTexture) {
-                    illumination += texture2D(material.emission_texture, texture_coordinate).rgb;
+                    if (material.enableEmissionTexture) {
+                        illumination += texture2D(material.emission_texture, TexCoord).rgb * 0.5;
+                    } else {
+                        illumination += texel_diffuse.rgb * 1.5;
+                    }
                 }
 
-                if(texel.a < 0.1) {
+                if (texel_diffuse.a < 0.1) {
                     discard;
                 }
-                gl_FragColor = vec4(clamp(illumination, 0.0, 1.0), texel.a);
+
+                gl_FragColor = vec4(clamp(illumination, 0.0, 1.0), texel_diffuse.a);
             }
         }
     </script>
@@ -420,8 +385,8 @@
             let sphere = {};
             let plane = {};
 
-            let lightSources = [];
-            let lightNum = 1;
+            let lights = [];
+            let lightNum = 6;
 
             // 物件比例尺與各參數設定:
             let earth = {
@@ -446,7 +411,7 @@
 
             let shaderProgram;
 
-            let Matries = [];
+            let Matrices = [];
             let matrix_modes= ['view', 'model', 'projection', 'texture', 'color'];
             let special_matrix = {
                 "ModelView": {
@@ -478,9 +443,9 @@
             let useLighting = true;
             let useDiffuseTexture = true;
             let useSpecularTexture = true;
-            let useNormalTexture = true;
+            let useNormalTexture = false;
             let useParallaxTexture = false;
-            let useEmissionTexture = true;
+            let useEmissionTexture = false;
             let axisOff = true;
 
             function initGL(canvas) {
@@ -581,6 +546,11 @@
                 shaderProgram.material.normal_texture = gl.getUniformLocation(shaderProgram, 'material.normal_texture');
                 shaderProgram.material.parallax_texture = gl.getUniformLocation(shaderProgram, 'material.parallax_texture');
                 shaderProgram.material.emission_texture = gl.getUniformLocation(shaderProgram, 'material.emission_texture');
+                shaderProgram.material.enableColorTexture = gl.getUniformLocation(shaderProgram, 'material.enableColorTexture');
+                shaderProgram.material.enableSpecularTexture = gl.getUniformLocation(shaderProgram, 'material.enableSpecularTexture');
+                shaderProgram.material.enableNormalTexture = gl.getUniformLocation(shaderProgram, 'material.enableNormalTexture');
+                shaderProgram.material.enableParallaxTexture = gl.getUniformLocation(shaderProgram, 'material.enableParallaxTexture');
+                shaderProgram.material.enableEmissionTexture = gl.getUniformLocation(shaderProgram, 'material.enableEmissionTexture');
 
                 shaderProgram.lights = [];
                 for (let i = 0; i < lightNum; i++) {
@@ -590,13 +560,13 @@
                     shaderProgram.lights[i].ambient = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].ambient');
                     shaderProgram.lights[i].diffuse = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].diffuse');
                     shaderProgram.lights[i].specular = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].specular');
-                    shaderProgram.lights[i].cutOff = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].cutOff');
-                    shaderProgram.lights[i].outerCutOff = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].outerCutOff');
-                    shaderProgram.lights[i].exponent = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].exponent');
                     shaderProgram.lights[i].constant = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].constant');
                     shaderProgram.lights[i].linear = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].linear');
                     shaderProgram.lights[i].quadratic = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].quadratic');
+                    shaderProgram.lights[i].cutoff = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].cutoff');
+                    shaderProgram.lights[i].outerCutoff = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].outerCutoff');
                     shaderProgram.lights[i].enable = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].enable');
+                    shaderProgram.lights[i].caster = gl.getUniformLocation(shaderProgram, 'lights[' + i + '].caster');
                 }
 
                 shaderProgram2 = createProgram('vertex-light', 'fragment-light');
@@ -713,6 +683,7 @@
             function initTextures() {
                 earth.diffuse_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_daytime.jpg");
                 earth.specular_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_specular.gif");
+                // earth.specular_texture = loadTexture("/WebGL/images/SolarSystem/earth/2k_earth_specular_map.tif");
                 earth.normal_texture = loadTexture("/WebGL/images/SolarSystem/earth/2k_earth_bump.png");
                 earth.depth_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_depth.png");
                 earth.emission_texture = loadTexture("/WebGL/images/SolarSystem/earth/earth_nightmap.jpg");
@@ -729,7 +700,7 @@
 
             function initMatrix() {
                 for(let i = 0; i < matrix_modes.length; i++) {
-                    Matries[matrix_modes[i]] = [mat4.create()];
+                    Matrices[matrix_modes[i]] = [mat4.create()];
                 }
             }
 
@@ -737,20 +708,20 @@
                 if (special_matrix[matrix_mode] && typeof special_matrix[matrix_mode].getMatrix == "function") {
                     return special_matrix[matrix_mode].getMatrix();
                 }
-                return Matries[matrix_mode][Matries[matrix_mode].length - 1];
+                return Matrices[matrix_mode][Matrices[matrix_mode].length - 1];
             }
 
             function pushMatrix(matrix_mode) {
                 let copy = mat4.create();
                 mat4.copy(copy, topMatrix(matrix_mode));
-                Matries[matrix_mode].push(copy);
+                Matrices[matrix_mode].push(copy);
             }
 
             function popMatrix(matrix_mode) {
-                if(Matries[matrix_mode].length == 0) {
+                if(Matrices[matrix_mode].length == 0) {
                     throw "Invalid popMatrix";
                 }
-                Matries[matrix_mode].pop();
+                Matrices[matrix_mode].pop();
             }
 
             function deg2Rad(degrees) {
@@ -763,7 +734,7 @@
                     gl.uniformMatrix4fv(shaderProgram.model, false, topMatrix('model'));
                     gl.uniformMatrix4fv(shaderProgram.view, false, topMatrix('view'));
                     gl.uniformMatrix4fv(shaderProgram.projection, false, topMatrix('projection'));
-                    gl.uniformMatrix3fv(shaderProgram.normalModel, false, topMatrix('Normal(ModelView)'));
+                    gl.uniformMatrix3fv(shaderProgram.normalModel, false, topMatrix('Normal(Model)'));
 
                     gl.uniform1b(shaderProgram.useLighting, useLighting);
                     gl.uniform1b(shaderProgram.useDiffuseTexture, useDiffuseTexture);
@@ -801,75 +772,183 @@
             }
 
             function initLighting() {
-                for (let i = 0; i < lightNum; i++) {
-                    lightSources[i] = {
-                        position: vec4.set(vec4.create(), 150.0, 0.0, 50.0, 1.0),
-                        direction: vec4.set(vec4.create(), 0.0, 0.0, 1.0, 0.0),
+                lights[0] = {
+                    position: vec3.set(vec3.create(), 0.0, 0.0, 0.0),
+                    direction: vec3.set(vec3.create(), 30.0, -50.0, -20.0),
 
-                        ambient: vec4.set(vec4.create(), 0.1, 0.1, 0.1, 1.0),
-                        diffuse: vec4.set(vec4.create(), 0.7, 0.7, 0.7, 1.0),
-                        specular: vec4.set(vec4.create(), 0.4, 0.4, 0.4, 1.0),
+                    ambient: vec3.set(vec3.create(), 0.2, 0.2, 0.2),
+                    diffuse: vec3.set(vec3.create(), 0.7, 0.7, 0.7),
+                    specular: vec3.set(vec3.create(), 0.4, 0.4, 0.4),
 
-                        cutOff: deg2Rad(10.0),
-                        outerCutOff: deg2Rad(18.0),
-                        exponent: 100.0,
+                    constant: 1.0,
+                    linear: 0.0,
+                    quadratic: 0.0,
 
-                        constant: 1.0,
-                        linear: 0.0,
-                        quadratic: 0.0,
+                    cutoff: deg2Rad(0.0),
+                    outerCutoff: deg2Rad(0.0),
 
-                        enable: i == 0,
-                        velocity: vec4.set(vec4.create(), 0, 0, 100, 0)
-                    }
+                    enable: true,
+                    caster: 0
                 }
-                console.log(lightSources);
+
+                lights[1] = {
+                    position: vec3.set(vec3.create(), 20.0, 0.0, 20.0),
+                    direction: vec3.set(vec3.create(), 0.0, 0.0, 0.0),
+
+                    ambient: vec3.set(vec3.create(), 0.2, 0.2, 0.2),
+                    diffuse: vec3.set(vec3.create(), 0.0, 0.8, 0.8),
+                    specular: vec3.set(vec3.create(), 0.0, 0.0, 0.0),
+
+                    cutoff: deg2Rad(0.0),
+                    outerCutoff: deg2Rad(0.0),
+
+                    constant: 1.0,
+                    linear: 0.09,
+                    quadratic: 0.0032,
+
+                    enable: true,
+                    caster: 1
+                }
+
+                lights[2] = {
+                    position: vec3.set(vec3.create(), 20.0, 0.0, -20.0),
+                    direction: vec3.set(vec3.create(), 0.0, 0.0, 0.0),
+
+                    ambient: vec3.set(vec3.create(), 0.0, 0.1, 0.0),
+                    diffuse: vec3.set(vec3.create(), 0.0, 0.7, 0.0),
+                    specular: vec3.set(vec3.create(), 0.0, 0.4, 0.0),
+
+                    cutoff: deg2Rad(0.0),
+                    outerCutoff: deg2Rad(0.0),
+
+                    constant: 1.0,
+                    linear: 0.09,
+                    quadratic: 0.0032,
+
+                    enable: true,
+                    caster: 1
+                }
+
+                lights[3] = {
+                    position: vec3.set(vec3.create(), -20.0, 0.0, -20.0),
+                    direction: vec3.set(vec3.create(), 0.0, 0.0, 0.0),
+
+                    ambient: vec3.set(vec3.create(), 0.0, 0.0, 0.1),
+                    diffuse: vec3.set(vec3.create(), 0.0, 0.0, 0.7),
+                    specular: vec3.set(vec3.create(), 0.0, 0.0, 0.4),
+
+                    cutoff: deg2Rad(0.0),
+                    outerCutoff: deg2Rad(0.0),
+
+                    constant: 1.0,
+                    linear: 0.09,
+                    quadratic: 0.0032,
+
+                    enable: true,
+                    caster: 1
+                }
+
+                lights[4] = {
+                    position: vec3.set(vec3.create(), -20.0, 0.0, 20.0),
+                    direction: vec3.set(vec3.create(), 0.0, 0.0, 0.0),
+
+                    ambient: vec3.set(vec3.create(), 0.1, 0.0, 0.1),
+                    diffuse: vec3.set(vec3.create(), 0.7, 0.0, 0.7),
+                    specular: vec3.set(vec3.create(), 0.4, 0.0, 0.4),
+
+                    cutoff: deg2Rad(0.0),
+                    outerCutoff: deg2Rad(0.0),
+
+                    constant: 1.0,
+                    linear: 0.09,
+                    quadratic: 0.0032,
+
+                    enable: true,
+                    caster: 1
+                }
+
+                lights[5] = {
+                    position: camera.position,
+                    direction: camera.direction,
+
+                    ambient: vec3.set(vec3.create(), 0.2, 0.2, 0.2),
+                    diffuse: vec3.set(vec3.create(), 0.8, 0.8, 0.8),
+                    specular: vec3.set(vec3.create(), 1.0, 0.0, 0.0),
+
+                    cutoff: deg2Rad(15.0),
+                    outerCutoff: deg2Rad(30.0),
+
+                    constant: 1.0,
+                    linear: 0.0,
+                    quadratic: 0.0,
+
+                    enable: false,
+                    caster: 2
+                }
             }
 
             function updateLighting() {
-                for (let i = 0; i < lightNum; i++) {
+                console.log(lights[5]);
+                for (let i = 0; i < lights.length; i++) {
                     gl.useProgram(shaderProgram);
-                    gl.uniform4fv(shaderProgram.lights[i].position, lightSources[i].position);
-                    gl.uniform4fv(shaderProgram.lights[i].direction, lightSources[i].direction);
-                    gl.uniform4fv(shaderProgram.lights[i].ambient, lightSources[i].ambient);
-                    gl.uniform4fv(shaderProgram.lights[i].diffuse, lightSources[i].diffuse);
-                    gl.uniform4fv(shaderProgram.lights[i].specular, lightSources[i].specular);
+                    gl.uniform3fv(shaderProgram.lights[i].position, lights[i].position);
+                    gl.uniform3fv(shaderProgram.lights[i].direction, lights[i].direction);
+
+                    gl.uniform3fv(shaderProgram.lights[i].ambient, lights[i].ambient);
+                    gl.uniform3fv(shaderProgram.lights[i].diffuse, lights[i].diffuse);
+                    gl.uniform3fv(shaderProgram.lights[i].specular, lights[i].specular);
                     
-                    gl.uniform1f(shaderProgram.lights[i].cutOff, lightSources[i].cutOff);
-                    gl.uniform1f(shaderProgram.lights[i].outerCutOff, lightSources[i].outerCutOff);
-                    gl.uniform1f(shaderProgram.lights[i].exponent, lightSources[i].exponent);
+                    gl.uniform1f(shaderProgram.lights[i].cutoff, Math.cos(lights[i].cutoff));
+                    gl.uniform1f(shaderProgram.lights[i].outerCutoff, Math.cos(lights[i].outerCutoff));
                     
-                    gl.uniform1f(shaderProgram.lights[i].constant, lightSources[i].constant);
-                    gl.uniform1f(shaderProgram.lights[i].linear, lightSources[i].linear);
-                    gl.uniform1f(shaderProgram.lights[i].quadratic, lightSources[i].quadratic);
+                    gl.uniform1f(shaderProgram.lights[i].constant, lights[i].constant);
+                    gl.uniform1f(shaderProgram.lights[i].linear, lights[i].linear);
+                    gl.uniform1f(shaderProgram.lights[i].quadratic, lights[i].quadratic);
                     
-                    gl.uniform1b(shaderProgram.lights[i].enable, lightSources[i].enable);
+                    gl.uniform1b(shaderProgram.lights[i].enable, lights[i].enable);
+                    gl.uniform1i(shaderProgram.lights[i].caster, lights[i].caster);
                 }
             }
 
             function initMaterial() {
                 cube.material = {
-                    ambient: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
-                    diffuse: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
-                    specular: vec4.set(vec4.create(), 0.3, 0.3, 0.3, 1.0),
+                    ambient: vec4.set(vec4.create(), 1.0, 0.5, 0.31, 1.0),
+                    diffuse: vec4.set(vec4.create(), 1.0, 0.5, 0.31, 1.0),
+                    specular: vec4.set(vec4.create(), 0.5, 0.5, 0.5, 1.0),
                     emission: vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0),
-                    shininess: 255,
-                    depthScale: 0.01
+                    shininess: 32.0,
+                    
+                    enableColorTexture: true,
+                    enableSpecularTexture: false,
+                    enableNormalTexture: true,
+                    enableParallaxTexture: true,
+                    enableEmissionTexture: false,
                 };
                 plane.material = {
                     ambient: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
                     diffuse: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
                     specular: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
                     emission: vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0),
-                    shininess: 255,
-                    depthScale: 0.05
+                    shininess: 32.0,
+
+                    enableColorTexture: false,
+                    enableSpecularTexture: false,
+                    enableNormalTexture: false,
+                    enableParallaxTexture: false,
+                    enableEmissionTexture: false,
                 };
                 earth.material = {
-                    ambient: vec4.set(vec4.create(), 0.2, 0.2, 0.2, 1.0),
-                    diffuse: vec4.set(vec4.create(), 1.0, 1.0, 1.0, 1.0),
-                    specular: vec4.set(vec4.create(), 0.3, 0.3, 0.3, 1.0),
+                    ambient: vec4.set(vec4.create(), 1.0, 0.5, 0.31, 1.0),
+                    diffuse: vec4.set(vec4.create(), 1.0, 0.5, 0.31, 1.0),
+                    specular: vec4.set(vec4.create(), 0.5, 0.5, 0.5, 1.0),
                     emission: vec4.set(vec4.create(), 0.0, 0.0, 0.0, 1.0),
-                    shininess: 512,
-                    depthScale: 0.01
+                    shininess: 64.0,
+
+                    enableColorTexture: true,
+                    enableSpecularTexture: true,
+                    enableNormalTexture: false,
+                    enableParallaxTexture: false,
+                    enableEmissionTexture: false,
                 };
             }
             
@@ -887,7 +966,11 @@
                 gl.uniform1i(shaderProgram.material.depth_texture, 3);
                 gl.uniform1i(shaderProgram.material.emission_texture, 4);
 
-                gl.uniform1f(shaderProgram.depthScale, current_material.depthScale);
+                gl.uniform1b(shaderProgram.material.enableColorTexture, current_material.enableColorTexture);
+                gl.uniform1b(shaderProgram.material.enableSpecularTexture, current_material.enableSpecularTexture);
+                gl.uniform1b(shaderProgram.material.enableNormalTexture, current_material.enableNormalTexture);
+                gl.uniform1b(shaderProgram.material.enableParallaxTexture, current_material.enableParallaxTexture);
+                gl.uniform1b(shaderProgram.material.enableEmissionTexture, current_material.enableEmissionTexture);
             }
 
             function initBuffers() {
@@ -999,9 +1082,11 @@
                         obj.vertices.push(obj.radius * z);
 
                         // Generate normal vector
-                        obj.vertices.push(x);
-                        obj.vertices.push(y);
-                        obj.vertices.push(z);
+                        let temp = vec3.set(vec3.create(), 2 * obj.radius * x , 2 * obj.radius * y, 2 * obj.radius * z);
+                        let normal = vec3.normalize(vec3.create(), temp);
+                        obj.vertices.push(normal[0]);
+                        obj.vertices.push(normal[1]);
+                        obj.vertices.push(normal[2]);
 
                         // Generate texture coordinate
                         let u = 1 - (j / obj.longitude);
@@ -1180,12 +1265,10 @@
                 if(type == 'rotate_angle'){
                     if(object.rotate_angle > 360){
                         object.rotate_angle = object.rotate_angle - 360;
-                        object.count.rotate += 1;
                     }
                 }else if(type == 'orbital_angle'){
                     if(object.orbital_angle > 360){
                         object.orbital_angle = object.orbital_angle - 360;
-                        object.count.orbit += 1;
                     }
                 }else{
                     error.log("Unknow type error!");
@@ -1301,26 +1384,34 @@
                 let lookAtMatrix = mat4.lookAt(mat4.create(), camera.position, camera.traget, camera.worldUp);
                 mat4.multiply(topMatrix('view'), topMatrix('view'), lookAtMatrix);
                 
+                lights[5].position = vec3.set(vec3.create(), camera.position[0], camera.position[1], camera.position[2]);
+                lights[5].direction = vec3.set(vec3.create(), camera.direction[0], camera.direction[1], camera.direction[2]);
                 updateLighting();
 
                 mat4.identity(topMatrix('model'));
 
                 // drawAxis(10);
-                
-                pushMatrix('model');
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [lightSources[0].position[0], lightSources[0].position[1], lightSources[0].position[2]]);
-                    color = vec3.set(vec3.create(), 1.0, 1.0, 1.0);
-                    drawLightCube();
-                popMatrix('model');
+
+                for(let i = 1; i < lights.length - 1; i++){
+                    if (!lights[i].enable) {
+                        continue;
+                    }
+                    pushMatrix('model');
+                        mat4.translate(topMatrix('model'), topMatrix('model'), [lights[i].position[0], lights[i].position[1], lights[i].position[2]]);
+                        color = vec3.set(vec3.create(), lights[i].diffuse[0], lights[i].diffuse[1], lights[i].diffuse[2]);
+                        drawLightCube();
+                    popMatrix('model');
+                }
 
                 pushMatrix('model');
-                    mat4.translate(topMatrix('model'), topMatrix('model'), [200, 0, 200]);
-                    mat4.scale(topMatrix('model'), topMatrix('model'), [20, 20, 20]);
+                    mat4.translate(topMatrix('model'), topMatrix('model'), [20, -20, 30]);
+                    mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
                     drawCube();
                 popMatrix('model');
 
                 pushMatrix('model');
                     mat4.rotate(topMatrix('model'), topMatrix('model'), deg2Rad(earth.rotate_angle), [0, 1, 0]);
+                    // mat4.scale(topMatrix('model'), topMatrix('model'), [10, 10, 10]);
                     drawSphere(earth);
                 popMatrix('model');
             }
@@ -1344,7 +1435,7 @@
                 initMaterial();
                 initLighting();
 
-                gl.clearColor(0.1, 0.1, 0.1, 1.0);
+                gl.clearColor(0.02, 0.02, 0.02, 1.0);
                 gl.enable(gl.DEPTH_TEST);
                 // gl.enable(gl.BLEND);
                 // gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
