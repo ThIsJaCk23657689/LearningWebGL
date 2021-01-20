@@ -1,0 +1,573 @@
+<html>
+
+  <head>
+    <title>WebGL course 10</title>
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+
+    <script type="text/javascript" src="../../GLjs/glMatrix-0.9.5.min.js"></script>
+    <script type="text/javascript" src="../../GLjs/webgl-utils.js"></script>
+
+    <script id="shader-fs" type="x-shader/x-fragment">
+      precision mediump float;
+
+      varying vec2 vTextureCoord;
+      varying float vLifetime;
+
+      uniform sampler2D uSampler;
+      uniform float uTimeFrag;
+      uniform vec4 uColor;
+
+      void main(void) {
+        float time = mod(uTimeFrag, vLifetime);
+        float percentOfLife = time / vLifetime;
+        percentOfLife = clamp(percentOfLife, 0.0, 1.0);
+
+        float offset = floor(16.0 * percentOfLife);
+        float offsetX = floor(mod(offset, 4.0)) / 4.0;
+        float offsetY = 0.75 - floor(offset / 4.0) / 4.0;
+
+        vec4 texColor = texture2D(
+           uSampler, 
+           vec2(
+             (vTextureCoord.x / 4.0) + offsetX,
+             (vTextureCoord.y / 4.0) + offsetY
+        ));
+        gl_FragColor = uColor * texColor;
+
+        gl_FragColor.a *= vLifetime;
+
+      }
+    </script>
+
+    <script id="shader-vs" type="x-shader/x-vertex">
+	
+      attribute vec2 aTextureCoord;
+      attribute float aLifetime;
+      attribute vec2 aTriCorner;
+      attribute vec3 aCenterOffset;
+      attribute vec3 aVelocity;
+
+      uniform mat4 uViewMatrix;
+      uniform mat4 uModelMatrix;
+      uniform mat4 uProjectionMatrix;
+	  
+      uniform vec3 uParticlePos;
+      uniform float uTime;
+      uniform bool uUseBillboarding;
+	  
+      varying float vLifetime;
+      varying vec2 vTextureCoord;
+
+      void main(void) {
+        float time = mod(uTime, aLifetime);
+		vec4 position = vec4(
+			uParticlePos + aCenterOffset + (time * aVelocity),
+			1.0
+        );
+		float time_offset = 1.0;
+		if(time>aLifetime*time_offset){
+			float time_offset_data = time-aLifetime*time_offset;
+			time_offset_data = time_offset_data * time_offset_data;
+			position.x+=time_offset_data*0.1;
+		}
+			
+        vLifetime = 1.3 - (time / aLifetime);
+        vLifetime = clamp(vLifetime, 0.0, 1.0);
+        float size = (vLifetime * vLifetime) * 0.05;
+
+        if (uUseBillboarding) {
+			vec3 cameraRight = vec3(
+				uViewMatrix[0].x, uViewMatrix[1].x, uViewMatrix[2].x
+			);
+			vec3 cameraUp = vec3(
+				uViewMatrix[0].y, uViewMatrix[1].y, uViewMatrix[2].y
+			);
+
+			position.xyz += (cameraRight * aTriCorner.x * size) +
+			(cameraUp * aTriCorner.y * size);
+        } else {
+			position.xy += aTriCorner.xy * size;
+        }
+
+        gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * position;
+
+        vTextureCoord = aTextureCoord;
+        vLifetime = aLifetime;
+        
+      }
+    </script>
+    <script type="text/javascript">
+      var gl;
+
+      function initGL(canvas) {
+        try {
+          gl = canvas.getContext("experimental-webgl");
+          gl.viewportWidth = canvas.width;
+          gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+          alert("Could not initialise WebGL, sorry :-(");
+        }
+        //若不提供uniform boolean傳遞，則用uniform1i代替
+        if(typeof gl.uniform1b !== 'function')
+        gl.uniform1b = function(binding_data, bool_val){
+          gl.uniform1i(binding_data, !bool_val ? 0 : 1);
+        };
+      }
+
+
+      function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        if (!shaderScript) {
+          return null;
+        }
+
+        var str = "";
+        var k = shaderScript.firstChild;
+        while (k) {
+          if (k.nodeType == 3) {
+            str += k.textContent;
+          }
+          k = k.nextSibling;
+        }
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+          shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+          shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+          return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          alert(gl.getShaderInfoLog(shader));
+          return null;
+        }
+
+        return shader;
+      }
+
+
+      var shaderProgram;
+
+      function initShaders() {
+        var fragmentShader = getShader(gl, "shader-fs");
+        var vertexShader = getShader(gl, "shader-vs");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+          alert("Could not initialise shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgram.particleLifetimeAttribute = gl.getAttribLocation(shaderProgram, "aLifetime");
+        gl.enableVertexAttribArray(shaderProgram.particleLifetimeAttribute);
+
+        shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, "aTextureCoord");
+        gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
+		
+        shaderProgram.particleTriCornerAttribute = gl.getAttribLocation(shaderProgram, "aTriCorner");
+        gl.enableVertexAttribArray(shaderProgram.particleTriCornerAttribute);
+		
+        shaderProgram.particleCenterOffsetAttribute = gl.getAttribLocation(shaderProgram, "aCenterOffset");
+        gl.enableVertexAttribArray(shaderProgram.particleCenterOffsetAttribute);
+		
+        shaderProgram.particleVelocityAttribute = gl.getAttribLocation(shaderProgram, "aVelocity");
+        gl.enableVertexAttribArray(shaderProgram.particleVelocityAttribute);
+
+        shaderProgram.projectionMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uProjectionMatrix");
+        shaderProgram.viewMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uViewMatrix");
+        shaderProgram.modelMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uModelMatrix");
+
+
+        shaderProgram.useBillboardingUniform =
+          gl.getUniformLocation(shaderProgram, "uUseBillboarding");
+
+        shaderProgram.samplerUniform =
+          gl.getUniformLocation(shaderProgram, "uSampler");
+		  
+        shaderProgram.particleTimeUniform =
+          gl.getUniformLocation(shaderProgram, "uTime");
+		shaderProgram.particleTimeFragUniform =
+          gl.getUniformLocation(shaderProgram, "uTimeFrag");
+		shaderProgram.particlePosUniform =
+          gl.getUniformLocation(shaderProgram, "uParticlePos");
+        shaderProgram.particleColorUniform =
+          gl.getUniformLocation(shaderProgram, "uColor");
+		  
+      }
+
+
+      function handleLoadedTexture(texture) {
+        gl.bindTexture(gl.TEXTURE_2D, texture); //綁定紋理到 gl.TEXTURE_2D
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // 所有被載入紋理圖片需要做水平翻轉
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+        //影像類型、細節層級、顯示卡儲存影像的格式、影像各種通道的大小(也就是儲存於 R、G、B 之資料類型)、影像本身
+
+        //NEAREST使用原始影像的原樣去進行紋理特殊縮放
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); //放大紋理
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); //縮小紋理
+        gl.bindTexture(gl.TEXTURE_2D, null);  //將當前紋理設置為null
+      }
+
+
+      var particleTexture;  //建立全域變數來儲存紋理
+      var testTexture;
+      function initTexture() {
+        particleTexture = gl.createTexture(); //建立紋理物件並傳送給particleTexture
+        particleTexture.image = new Image();
+        particleTexture.image.onload = function () {  //回呼函式(callback function)
+          handleLoadedTexture(particleTexture)
+        }
+        particleTexture.image.src = "particle1.png";
+		
+		testTexture = gl.createTexture(); //建立紋理物件並傳送給particleTexture
+        testTexture.image = new Image();
+        testTexture.image.onload = function () {  //回呼函式(callback function)
+          handleLoadedTexture(testTexture)
+        }
+		testTexture.image.src = "test.png";
+      }
+
+
+      var matrix_modes = ["view", "model", "projection", "texture", "color"];
+      var Matries = [];
+
+      function initMatrix(){
+        //依序初始化所有矩陣堆疊
+        for(var i=0; i<matrix_modes.length; ++i){
+          Matries[matrix_modes[i]] = [mat4.create()];
+        }
+      }
+      function TopMatrix(matrix_mode) {
+        //只作用在矩陣堆疊的頂層
+        return Matries[matrix_mode][Matries[matrix_mode].length-1];
+      }
+      function PushMatrix(matrix_mode) {
+        //建立一個零矩陣來準備儲存矩陣
+        var copy = mat4.create();
+        //將堆疊頂層的矩陣複製一份
+        mat4.set(TopMatrix(matrix_mode), copy);
+        //再放進堆疊
+        Matries[matrix_mode].push(copy);
+      }
+
+      function PopMatrix(matrix_mode) {
+        if (Matries[matrix_mode].length == 0) {
+          throw "Invalid popMatrix!";
+        }
+        Matries[matrix_mode].pop();
+      }
+
+      function setMatrixUniforms() {
+        gl.uniformMatrix4fv(shaderProgram.projectionMatrixUniform, false, TopMatrix("projection"));
+        gl.uniformMatrix4fv(shaderProgram.viewMatrixUniform, false, TopMatrix("view"));
+        gl.uniformMatrix4fv(shaderProgram.modelMatrixUniform, false, TopMatrix("model"));
+        //gl.uniformMatrix4fv(shaderProgram.colorMatrixUniform, false, TopMatrix("color"));
+        //gl.uniformMatrix4fv(shaderProgram.textureMatrixUniform, false, TopMatrix("texture"));
+      }
+
+      function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+      }
+
+      var numParticles = 1000;
+      var lifetimes = [];
+      var triCorners = [];
+      var texCoords = [];
+      var vertexIndices = [];
+      var centerOffsets = [];
+      var velocities = [];
+
+      var triCornersCycle = [
+        -1.0, -1.0,
+        1.0, -1.0,
+        1.0, 1.0,
+        -1.0, 1.0
+      ];
+      var texCoordsCycle = [
+        0, 0,
+        1, 0,
+        1, 1,
+        0, 1
+      ];
+
+      var particleLifetimeBuffer;
+      var textureCoordBuffer;
+      var particleTriCornerBuffer;
+      var particleCenterOffsetBuffer;
+      var particleVelocityBuffer;
+      var particleVertexIndexBuffer;
+      function initBuffers() {
+	  
+	  //發射器 : 製造出粒子
+		for (var i = 0; i < numParticles; i++) {
+		  var lifetime = 8 * Math.random()
+
+		  var diameterAroundCenter = 0.5
+		  var halfDiameterAroundCenter = diameterAroundCenter / 2
+
+		  var xStartOffset = diameterAroundCenter * 
+			Math.random() - halfDiameterAroundCenter
+		  xStartOffset /= 3
+
+		  var yStartOffset = diameterAroundCenter * 
+			Math.random() - halfDiameterAroundCenter
+		  yStartOffset /= 10
+
+		  var zStartOffset = diameterAroundCenter * 
+			Math.random() - halfDiameterAroundCenter
+		  zStartOffset /= 3
+
+		  var upVelocity = 0.1 * Math.random()
+
+		  var xSideVelocity = 0.02 * Math.random()
+		  if (xStartOffset > 0) {
+			xSideVelocity *= -1
+		  }
+
+		  var zSideVelocity = 0.02 * Math.random()
+		  if (zStartOffset > 0) {
+			zSideVelocity *= -1
+		  }
+
+		  for (var j = 0; j < 4; j++) {
+			lifetimes.push(lifetime)
+
+			triCorners.push(triCornersCycle[j * 2])
+			triCorners.push(triCornersCycle[j * 2 + 1])
+
+			texCoords.push(texCoordsCycle[j * 2])
+			texCoords.push(texCoordsCycle[j * 2 + 1])
+			
+			centerOffsets.push(xStartOffset)
+			centerOffsets.push(yStartOffset + Math.abs(xStartOffset / 2.0))
+			centerOffsets.push(zStartOffset)
+
+			velocities.push(xSideVelocity)
+			velocities.push(upVelocity)
+			velocities.push(zSideVelocity)
+		  }
+
+		  vertexIndices = vertexIndices.concat([
+			0, 1, 2, 0, 2, 3
+		  ].map(function (num) { return num + 4 * i }))
+		}
+	  
+        particleLifetimeBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, particleLifetimeBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lifetimes), gl.STATIC_DRAW);
+        particleLifetimeBuffer.itemSize = 1;
+
+        textureCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(texCoords), gl.STATIC_DRAW);
+        textureCoordBuffer.itemSize = 2;
+		
+		particleTriCornerBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, particleTriCornerBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(triCorners), gl.STATIC_DRAW);
+        particleTriCornerBuffer.itemSize = 2;
+		
+		particleCenterOffsetBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, particleCenterOffsetBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(centerOffsets), gl.STATIC_DRAW);
+        particleCenterOffsetBuffer.itemSize = 3;
+		
+		particleVelocityBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, particleVelocityBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(velocities), gl.STATIC_DRAW);
+        particleVelocityBuffer.itemSize = 3;
+
+
+        particleVertexIndexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, particleVertexIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(vertexIndices), gl.STATIC_DRAW);
+        particleVertexIndexBuffer.itemSize = 1;
+
+        initMatrix();
+      }
+
+
+	var isDragging = false
+
+	var xRotation = 0
+	var yRotation = 0
+
+	var lastMouseX = 0
+	var lastMouseY = 0
+
+	function getMouseState(mouse_mode,e){
+		var mouse_data = e;
+		var mouseX='pageX';
+		var mouseY='pageY';
+		switch (mouse_mode) {
+		  case 'touch':
+			mouse_data=e.touches[0];
+			mouseX='clientX';
+			mouseY='clientY';
+			break;
+		  default:
+		  case 'mouse':
+			mouse_data=e;
+			mouseX='pageX';
+			mouseY='pageY';
+			break;
+		}
+		return {data:mouse_data,X:mouseX,Y:mouseY};
+	}
+	function mousedown(mouse_mode,e) {
+		var mouse=getMouseState(mouse_mode,e);
+		if(mouse_mode=='mouse')isDragging = true;
+		lastMouseX = mouse.data[mouse.X];
+		lastMouseY = mouse.data[mouse.Y];
+	}
+	function mousemove(mouse_mode,e) {
+		var mouse=getMouseState(mouse_mode,e);
+		if (isDragging || mouse_mode=='touch') {
+			if(mouse_mode=='touch')e.preventDefault();
+			xRotation += (mouse.data[mouse.Y] - lastMouseY) / 50;
+			yRotation -= (mouse.data[mouse.X] - lastMouseX) / 50;
+
+			xRotation = Math.min(xRotation, Math.PI / 2.5);
+			xRotation = Math.max(xRotation, -Math.PI / 2.5);
+
+			lastMouseX = mouse.data[mouse.X];
+			lastMouseY = mouse.data[mouse.Y];
+		}
+	}
+	function onmouseup(e) { isDragging = false; }
+      var clockTime = 3;
+
+      function drawScene() {
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        //set projection
+        mat4.identity(TopMatrix("projection"));
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, TopMatrix("projection"));
+
+        gl.enable(gl.BLEND);
+        //gl.blendFunc(gl.ONE, gl.ONE);
+		gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+        //set camera
+        mat4.identity(TopMatrix("view"));
+
+		mat4.translate(TopMatrix("view"), [0, 0.25, 1])
+
+		var cameraPos = [TopMatrix("view")[12], TopMatrix("view")[13], TopMatrix("view")[14]];
+
+		mat4.lookAt(cameraPos, [0,0,0], [0, 1, 0],TopMatrix("view"));
+		mat4.rotateX(TopMatrix("view"), -xRotation);
+		mat4.rotateY(TopMatrix("view"), yRotation);
+        //set scene
+        mat4.identity(TopMatrix("model"));
+
+        gl.uniform1f(shaderProgram.particleTimeUniform, clockTime)
+        gl.uniform1f(shaderProgram.particleTimeFragUniform, clockTime)
+
+        var billboardingEnabled = document.getElementById("texture").checked;
+		var usefiretexture = document.getElementById("firetexture").checked;
+		
+        gl.uniform1b(shaderProgram.useBillboardingUniform, billboardingEnabled);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, usefiretexture ? particleTexture : testTexture);
+        gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+        gl.uniform3fv(shaderProgram.particlePosUniform, [0.0, -0.25, 0.0]);
+        gl.uniform4fv(shaderProgram.particleColorUniform, [0.8, 0.25, 0.25, 1.0]);
+		//gl.uniform4fv(shaderProgram.particleColorUniform, [0.1, 0.1, 1.0, 1.0]);
+		
+		BindBufferWithAttribute('ARRAY_BUFFER', particleLifetimeBuffer, shaderProgram.particleLifetimeAttribute);
+		BindBufferWithAttribute('ARRAY_BUFFER', textureCoordBuffer, shaderProgram.textureCoordAttribute);
+		BindBufferWithAttribute('ARRAY_BUFFER', particleTriCornerBuffer, shaderProgram.particleTriCornerAttribute);
+		BindBufferWithAttribute('ARRAY_BUFFER', particleCenterOffsetBuffer, shaderProgram.particleCenterOffsetAttribute);
+		BindBufferWithAttribute('ARRAY_BUFFER', particleVelocityBuffer, shaderProgram.particleVelocityAttribute);
+		BindBufferWithAttribute('ELEMENT_ARRAY_BUFFER', particleVertexIndexBuffer, null);
+        setMatrixUniforms();
+        gl.drawElements(gl.TRIANGLES, numParticles * 6, gl.UNSIGNED_SHORT, 0);
+
+
+      }
+
+      function BindBufferWithAttribute(bufferType, bufferPtr, AttributePtr) {
+        gl.bindBuffer(gl[bufferType], bufferPtr);
+		if(AttributePtr != null)
+        gl.vertexAttribPointer(AttributePtr, bufferPtr.itemSize, gl.FLOAT, false, 0, 0);
+      }
+
+      var lastTime = 0;
+
+      function animate() {
+        var timeNow = new Date().getTime();
+        if (lastTime != 0) {
+          var elapsed = timeNow - lastTime;
+          clockTime += elapsed / 1000.0;
+        }
+        lastTime = timeNow;
+      }
+
+
+      function tick() {
+        requestAnimFrame(tick);
+        drawScene();
+        animate();
+      }
+
+
+      function webGLStart() {
+        var canvas = document.getElementById("lesson10-canvas");
+        initGL(canvas);
+        initShaders();
+        initBuffers();
+        initTexture();
+
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+		
+
+		canvas.onmousedown = (e=>mousedown('mouse',e));
+		canvas.onmousemove = (e=>mousemove('mouse',e));
+		canvas.onmouseup = onmouseup;
+		canvas.addEventListener('touchstart', e=>mousedown('touch',e));
+		canvas.addEventListener('touchmove', e=>mousemove('touch',e));
+				
+        tick();
+      }
+    </script>
+  </head>
+
+  <body onload="webGLStart();">
+	<div style="clear:both;height:450px">
+		<canvas id="lesson10-canvas" style="border: none; position:absolute" width="500px" height="500px"></canvas>
+		<h2>粒子特效</h2>
+		<p>這是火焰粒子特效的一個範例。其中，火眼效果透過blend與alpha testing等方式與網頁融合。</p>
+		<h2>所含技術</h2>
+		<ul>
+			<li>blending (使新繪製之內容與原有frame buffer的資料融合)</li>
+			<li>alpha testing (透過alpha值決定繪圖與否)</li>
+			<li>billbording (所有粒子均面相攝影機)<ul>
+				<li>Billbord圖像：<img id="fire_show_gif" src="particle1.gif"></img></li>
+			</ul></li>
+			<li>大量物件管理</li>
+		</ul>
+	</div>
+	<h2>控制項</h2>
+    <input type="checkbox" id="texture" checked /> Enable Billbord<br/>
+	<input type="checkbox" id="firetexture" checked onchange="document.getElementById('fire_gif').src=(this.checked?'particle1.gif':'test.gif');document.getElementById('fire_show_gif').src=(this.checked?'particle1.gif':'test.gif');"/> 使用火焰粒子圖<img id="fire_gif" src="particle1.gif" style="width:64px;"></img><br/>
+    <p align="center">Thanks <a href="http://learningwebgl.com/lessons">WebGL Lessons</a></p>
+  </body>
+
+</html>

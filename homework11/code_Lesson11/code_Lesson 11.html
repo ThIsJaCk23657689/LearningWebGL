@@ -1,0 +1,1325 @@
+<html>
+  <head>
+    <title>Learning WebGL Lesson 11</title>
+    <meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+
+    <script type="text/javascript" src="../../GLjs/glMatrix-0.9.5.min.js"></script>
+    <script type="text/javascript" src="../../GLjs/webgl-utils.js"></script>
+
+    <script id="shader-header" type="x-shader/x-header">
+      precision mediump float;
+      struct glLight {//don't use gl_light
+        vec4 position;
+        vec4 direction;
+        vec4 ambient;
+        vec4 diffuse;
+        vec4 specular;
+        float spotCutOff;
+        float constantAttenuation;
+        float linearAttenuation;
+        float quadraticAttenuation;
+        float spotExponent;
+        bool isSpot;
+      };
+      struct glMaterial {//don't use gl_Material
+        vec4 ambient;
+        vec4 diffuse;
+        vec4 specular;
+        vec4 emission;
+        float shiness;
+      };
+      struct glFog {
+        float density;
+        vec4 color;
+        //1 linear; 2 exponential; 3 exponential square
+        int type;
+        //0 plane based; 1 range based
+        int depthType;
+      };
+      const int PLANE_BASED = 0;
+      const int RANGE_BASED = 1;
+      const int FOG_NONE = 0;
+      const int FOG_LINEAR = 1;
+      const int FOG_EXPONENTIAL = 2;
+      const int FOG_EXPONENTIAL_SQUARE = 3;
+      const float LOG2 = 1.442695;
+    </script>
+
+    <script id="shader-fs" type="x-shader/x-fragment">
+      varying vec2 vTextureCoord;
+      varying vec3 vNormal;
+      varying vec3 vLight;
+      varying vec3 vEye;
+      varying vec4 viewSpace;
+      uniform bool uUseLighting;
+
+      uniform glMaterial uFrontMaterial;
+
+      uniform bool uEnableTexture;
+      uniform float uAlpha;
+      //不特別實作背面
+      //uniform glMaterial uBackMaterial;
+
+      uniform glLight uLights[2];
+      uniform sampler2D uSampler;
+      uniform glFog uFogData;
+
+      void main(void) {
+        vec4 texel = texture2D(uSampler, vTextureCoord.st );
+        if (!uEnableTexture) texel = vec4(1.0, 1.0, 1.0, 1.0);
+        vec4 preFragColor = texel;
+        if (uUseLighting) {
+          vec3 Normal = normalize(vNormal);
+          vec3 Light = normalize(vLight);
+          vec3 Eye = normalize(vEye);
+          vec3 Half = normalize(Eye+Light);
+
+          float I_D = max(dot(Normal,Light),0.0);
+          float I_S = pow(max(dot(Half,Normal),0.0),uFrontMaterial.shiness);
+
+          vec4 diffuse = I_D * uLights[0].diffuse * uFrontMaterial.diffuse * texel;
+
+          vec4 specular = vec4(I_S * uLights[0].specular.rgb * uFrontMaterial.specular.rgb, 1.0);
+          vec4 ambient = uLights[0].ambient * uFrontMaterial.ambient * texel;
+          preFragColor = ambient + diffuse + specular;
+        }
+
+        preFragColor = vec4(preFragColor.rgb, preFragColor.a * uAlpha);
+
+        vec4 finalColor = vec4(0.0, 0.0, 0.0, uAlpha);
+        //distance
+        float dist = 0.0;
+        float fogFactor = 0.0;
+
+        //compute distance used in fog equations
+        if(uFogData.depthType == PLANE_BASED)//select plane based vs range based
+        {
+          //plane based
+          dist = abs(viewSpace.z);
+          //dist = (gl_FragCoord.z / gl_FragCoord.w);
+        }
+        else //RANGE_BASED
+        {
+          //range based
+          dist = length(viewSpace);
+        }
+
+        if(uFogData.type == FOG_NONE)//fog off
+        {
+          finalColor = preFragColor;
+        }
+        if(uFogData.type == FOG_LINEAR)//linear fog
+        {
+          // 20 - fog starts; 80 - fog ends
+          fogFactor = (80.0 - dist)/(80.0 - 20.0);
+          fogFactor = clamp( fogFactor, 0.0, 1.0 );
+
+          //if you inverse color in glsl mix function you have to
+          //put 1.0 - fogFactor
+          finalColor = mix(uFogData.color, preFragColor, fogFactor);
+        }
+        else if( uFogData.type == FOG_EXPONENTIAL)// exponential fog
+        {
+          fogFactor = 1.0 /exp(dist * uFogData.density);
+          fogFactor = clamp( fogFactor, 0.0, 1.0 );
+
+          // mix function fogColor⋅(1−fogFactor) + lightColor⋅fogFactor
+          finalColor = mix(uFogData.color, preFragColor, fogFactor);
+        }
+        else if( uFogData.type == FOG_EXPONENTIAL_SQUARE)
+        {
+          fogFactor = 1.0 /exp( (dist * uFogData.density)* (dist * uFogData.density));
+          fogFactor = clamp( fogFactor, 0.0, 1.0 );
+
+          finalColor = mix(uFogData.color, preFragColor, fogFactor);
+        }
+
+        gl_FragColor = finalColor;
+      }
+    </script>
+
+    <script id="shader-vs" type="x-shader/x-vertex">
+      attribute vec3 aVertexPosition;
+      attribute vec3 aVertexNormal;
+      attribute vec2 aTextureCoord;
+
+      uniform mat4 uViewMatrix;
+      uniform mat4 uModelMatrix;
+      uniform mat4 uProjectionMatrix;
+      uniform mat3 uNormalMatrix;
+      uniform mat4 uLightModelMatrix;
+      uniform glLight uLights[2];
+
+      uniform bool uUseLighting;
+      varying vec2 vTextureCoord;
+
+      //法向量線性內插
+      varying vec3 vNormal;
+      //光線相對點的向量線性內插
+      varying vec3 vLight;
+      //眼睛相對點的向量線性內插
+      varying vec3 vEye;
+      varying vec4 viewSpace;
+      void main(void) {
+        //local variable; ModelViewMatrix; Model Matrix和View Matrix之積 (後乘法)
+        mat4 lModelViewMatrix = uViewMatrix * uModelMatrix;
+        viewSpace = uProjectionMatrix * lModelViewMatrix * vec4(aVertexPosition, 1.0);
+        gl_Position = viewSpace;
+        vTextureCoord = aTextureCoord;
+
+        vec4 eyePosition = lModelViewMatrix * vec4(aVertexPosition, 1.0);
+        vec4 eyeLightPos = uViewMatrix * uLightModelMatrix * uLights[0].position;
+        vNormal =  normalize(uNormalMatrix * aVertexNormal);
+        vLight = normalize(eyeLightPos.xyz - eyePosition.xyz) ;
+        vEye = -eyePosition.xyz;
+      }
+    </script>
+
+    <script type="text/javascript">
+      var gl;
+
+      function initGL(canvas) {
+        try {
+          gl = canvas.getContext("experimental-webgl", {stencil:true});
+          gl.viewportWidth = canvas.width;
+          gl.viewportHeight = canvas.height;
+        } catch (e) {
+        }
+        if (!gl) {
+          alert("Could not initialise WebGL, sorry :-(");
+        }
+        //若不提供uniform boolean傳遞，則用uniform1i代替
+        if(typeof gl.uniform1b !== 'function')
+        gl.uniform1b = function(binding_data, bool_val){
+          gl.uniform1i(binding_data, !bool_val ? 0 : 1);
+        };
+      }
+
+      var lightStructMembers = [
+        "position",
+        "direction",
+
+        "diffuse",
+        "specular",
+        "ambient",
+
+        "spotCutOff",
+        "constantAttenuation",
+        "linearAttenuation",
+        "quadraticAttenuation",
+        "spotExponent",
+        "isSpot",
+      ];
+
+      var materialStructMembers = [
+        "ambient",
+        "diffuse",
+        "specular",
+        "emission",
+        "shiness"
+      ];
+
+      var fogStructMembers = [
+        "density",
+        "color",
+        "type",
+        "depthType",
+      ];
+      fogStructMembers.EnumType = {"none":0, "linear":1, "exponential":2, "exponential_square": 3};
+      fogStructMembers.EnumDepthType = {"plane_based":0, "range_based":1};
+
+      var light_sources = [];
+      var numLights = 1;
+
+      function getShader(gl, id) {
+        var shaderScript = document.getElementById(id);
+        var shaderHeader = document.getElementById("shader-header");
+        if (!shaderScript) {
+          return null;
+        }
+
+        var str = "", header = '';
+        var k = shaderScript.firstChild;
+        while (k) {
+          if (k.nodeType == 3) str += k.textContent;
+          k = k.nextSibling;
+        }
+
+        k = shaderHeader.firstChild;
+        while (k) {
+          if (k.nodeType == 3) header += k.textContent;
+          k = k.nextSibling;
+        }
+        if(header && header !== '')str = header + '\n' + str;
+
+        var shader;
+        if (shaderScript.type == "x-shader/x-fragment") {
+          shader = gl.createShader(gl.FRAGMENT_SHADER);
+        } else if (shaderScript.type == "x-shader/x-vertex") {
+          shader = gl.createShader(gl.VERTEX_SHADER);
+        } else {
+          return null;
+        }
+
+        gl.shaderSource(shader, str);
+        gl.compileShader(shader);
+
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          alert(gl.getShaderInfoLog(shader));
+          return null;
+        }
+
+        return shader;
+      }
+
+      var shaderProgram;
+
+      function initShaders() {
+        var fragmentShader = getShader(gl, "shader-fs");
+        var vertexShader = getShader(gl, "shader-vs");
+
+        shaderProgram = gl.createProgram();
+        gl.attachShader(shaderProgram, vertexShader);
+        gl.attachShader(shaderProgram, fragmentShader);
+        gl.linkProgram(shaderProgram);
+
+        if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+          alert("Could not initialise shaders");
+        }
+
+        gl.useProgram(shaderProgram);
+
+        shaderProgram.vertexPositionAttribute = gl.getAttribLocation(shaderProgram, "aVertexPosition");
+        gl.enableVertexAttribArray(shaderProgram.vertexPositionAttribute);
+
+        shaderProgram.textureCoordAttribute = gl.getAttribLocation(shaderProgram, "aTextureCoord");
+        gl.enableVertexAttribArray(shaderProgram.textureCoordAttribute);
+
+        shaderProgram.vertexNormalAttribute = gl.getAttribLocation(shaderProgram, "aVertexNormal");
+        gl.enableVertexAttribArray(shaderProgram.vertexNormalAttribute);
+
+        shaderProgram.projectionMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uProjectionMatrix");
+        shaderProgram.viewMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uViewMatrix");
+        shaderProgram.modelMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uModelMatrix");
+        shaderProgram.normalMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uNormalMatrix");
+        shaderProgram.LightModelMatrixUniform =
+          gl.getUniformLocation(shaderProgram, "uLightModelMatrix");
+        shaderProgram.samplerUniform = gl.getUniformLocation(shaderProgram, "uSampler");
+        shaderProgram.useLightingUniform = gl.getUniformLocation(shaderProgram, "uUseLighting");
+        shaderProgram.ambientColorUniform = gl.getUniformLocation(shaderProgram, "uAmbientColor");
+        shaderProgram.pointLightingLocationUniform = gl.getUniformLocation(shaderProgram, "uPointLightingLocation");
+        shaderProgram.pointLightingColorUniform = gl.getUniformLocation(shaderProgram, "uPointLightingColor");
+        shaderProgram.EnableTextureUniform = gl.getUniformLocation(shaderProgram, "uEnableTexture");
+        shaderProgram.MirrorBlendUniform = gl.getUniformLocation(shaderProgram, "uAlpha");
+        shaderProgram.FrontMaterialUniform = {};
+        var structMembers = {};
+        //將結構中每個成員變數Bind，並且儲存Bind資訊
+        for (var jj = 0; jj < materialStructMembers.length; ++jj) {
+          var name = materialStructMembers[jj];
+          structMembers[name] = gl.getUniformLocation(shaderProgram,
+            //組合出GLSL的Syntax以便Binding
+            "uFrontMaterial." + name);
+        }
+        shaderProgram.FrontMaterialUniform = structMembers;
+
+        shaderProgram.lightsUniform = {};
+        //場景中可以有多盞燈
+        for (var ll = 0; ll < numLights; ++ll) {
+          structMembers = {};
+          //將結構中每個成員變數Bind，並且儲存Bind資訊
+          for (var jj = 0; jj < lightStructMembers.length; ++jj) {
+            var name = lightStructMembers[jj];
+            structMembers[name] = gl.getUniformLocation(shaderProgram,
+              //組合出GLSL的Syntax以便Binding
+              "uLights[" + ll + "]." + name);
+          }
+          shaderProgram.lightsUniform[ll] = structMembers;
+        }
+
+        shaderProgram.FogDataUniform = {};
+        structMembers = {};
+        //將結構中每個成員變數Bind，並且儲存Bind資訊
+        for (var jj = 0; jj < fogStructMembers.length; ++jj) {
+          var name = fogStructMembers[jj];
+          if(typeof name !== "string")continue;
+          structMembers[name] = gl.getUniformLocation(shaderProgram,
+            //組合出GLSL的Syntax以便Binding
+            "uFogData." + name);
+        }
+        shaderProgram.FogDataUniform = structMembers;
+        console.log(shaderProgram.FogDataUniform);
+      }
+
+      function handleLoadedTexture(texture) {
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+        gl.generateMipmap(gl.TEXTURE_2D);
+
+        gl.bindTexture(gl.TEXTURE_2D, null);
+      }
+
+      var moonTexture;
+      var crateTexture;
+
+      function initTextures() {
+        moonTexture = gl.createTexture();
+        moonTexture.image = new Image();
+        moonTexture.image.onload = function () {
+          handleLoadedTexture(moonTexture)
+        }
+        moonTexture.image.src = "moon.gif";
+
+        crateTexture = gl.createTexture();
+        crateTexture.image = new Image();
+        crateTexture.image.onload = function () {
+          handleLoadedTexture(crateTexture)
+        }
+        crateTexture.image.src = "crate.gif";
+      }
+
+      function initLighting(){
+        for(var i=0; i<numLights; ++i){
+          light_sources[i] = {
+            direction: [0.0, -1.0, 0.0, 0.0],
+            position: [0.0, 0.0, 0.0, 1.0],
+
+            ambient: [0.3, 0.3, 0.3, 1.0],
+            diffuse: [0.0, 0.0, 0.0, 1.0],
+            specular: [0.8, 0.8, 0.8, 1.0],//defult no specular
+
+            spotCutOff: 180.0,
+            spotExponent: 0.0,
+            constantAttenuation: 1.0,
+            linearAttenuation: 0.0,
+            quadraticAttenuation: 0.0,
+            isSpot: false
+          };
+        }
+      }
+      function UpdateLighting(){
+        for(var i=0; i<numLights; ++i){
+          gl.uniform4fv(shaderProgram.lightsUniform[i].direction,
+            light_sources[i].direction);
+          gl.uniform4fv(shaderProgram.lightsUniform[i].position,
+            light_sources[i].position);
+
+          gl.uniform4fv(shaderProgram.lightsUniform[i].ambient,
+            light_sources[i].ambient);
+          gl.uniform4fv(shaderProgram.lightsUniform[i].diffuse,
+            light_sources[i].diffuse);
+          gl.uniform4fv(shaderProgram.lightsUniform[i].specular,
+            light_sources[i].specular);
+
+          gl.uniform1f(shaderProgram.lightsUniform[i].spotCutOff,
+            light_sources[i].spotCutOff);
+          gl.uniform1f(shaderProgram.lightsUniform[i].spotExponent,
+            light_sources[i].spotExponent);
+          gl.uniform1f(shaderProgram.lightsUniform[i].constantAttenuation,
+            light_sources[i].constantAttenuation);
+          gl.uniform1f(shaderProgram.lightsUniform[i].linearAttenuation,
+            light_sources[i].linearAttenuation);
+          gl.uniform1f(shaderProgram.lightsUniform[i].quadraticAttenuation,
+            light_sources[i].quadraticAttenuation);
+          gl.uniform1b(shaderProgram.lightsUniform[i].isSpot,
+            light_sources[i].isSpot);
+        }
+      }
+
+      var front_material;
+      function initMaterial(){
+        front_material = {
+          ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+          diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
+          specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
+          emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+          shiness:255
+        };
+      }
+      function UpdateMaterial(objMaterial){
+        gl.uniform4fv(shaderProgram.FrontMaterialUniform.ambient,
+          objMaterial.ambient);
+        gl.uniform4fv(shaderProgram.FrontMaterialUniform.diffuse,
+          objMaterial.diffuse);
+        gl.uniform4fv(shaderProgram.FrontMaterialUniform.specular,
+          objMaterial.specular);
+        gl.uniform4fv(shaderProgram.FrontMaterialUniform.emission,
+          objMaterial.emission);
+        gl.uniform1f(shaderProgram.FrontMaterialUniform.shiness,
+          objMaterial.shiness);
+      }
+
+      var foggy_effect;
+      function initFog(){
+        foggy_effect = {
+          density:0.08,
+          color:[0.5, 0.5, 0.3, 1.0],
+          type:fogStructMembers.EnumType.none,
+          depthType:fogStructMembers.EnumDepthType.range_based
+        };
+      }
+      function UpdateFog(objFog){
+        gl.uniform1f(shaderProgram.FogDataUniform.density,
+          objFog.density);
+        gl.uniform4fv(shaderProgram.FogDataUniform.color,
+          objFog.color);
+        gl.uniform1i(shaderProgram.FogDataUniform.type,
+          objFog.type);
+        gl.uniform1i(shaderProgram.FogDataUniform.depthType,
+          objFog.depthType);
+      }
+
+      var TopMatrix;
+      var matrix_modes = ["view", "model", "projection", "texture", "color", "lightmodel"];
+      //定義特殊矩陣
+      var special_matrix_modes = {
+        "modelview":{
+          "get_matrix":function(){
+            var result = mat4.create();
+            mat4.multiply(TopMatrix("view"), TopMatrix("model"), result);
+            return result;
+          }
+        },
+        "modelviewprojection":{
+          "get_matrix":function(){
+            var result = mat4.create();
+            mat4.multiply(TopMatrix("projection"), TopMatrix("modelview"), result);
+            return result;
+          }
+        },
+          "normal":{
+            "get_matrix":function(){
+              var normalMatrix = mat3.create();
+              mat4.toInverseMat3(TopMatrix("modelview"), normalMatrix);
+              mat3.transpose(normalMatrix);
+              return normalMatrix;
+            }
+          },
+          "identity":{
+            "get_matrix":function(){
+              var result = mat4.create();
+              mat4.identity(result);
+              return result;
+            }
+          }
+      };
+      var Matries = [];
+
+      function initMatrix(){
+        //依序初始化所有矩陣堆疊
+        for(var i=0; i<matrix_modes.length; ++i){
+          Matries[matrix_modes[i]] = [mat4.create()];
+        }
+      }
+      TopMatrix = function(matrix_mode) {
+        if(special_matrix_modes[matrix_mode] &&
+          typeof special_matrix_modes[matrix_mode].get_matrix === "function"){
+            return special_matrix_modes[matrix_mode].get_matrix();
+        }
+        //只作用在矩陣堆疊的頂層
+        return Matries[matrix_mode][Matries[matrix_mode].length-1];
+      }
+      function PushMatrix(matrix_mode) {
+        //建立一個零矩陣來準備儲存矩陣
+        var copy = mat4.create();
+        //將堆疊頂層的矩陣複製一份
+        mat4.set(TopMatrix(matrix_mode), copy);
+        //再放進堆疊
+        Matries[matrix_mode].push(copy);
+      }
+
+      function PopMatrix(matrix_mode) {
+        if (Matries[matrix_mode].length == 0) {
+          throw "Invalid popMatrix!";
+        }
+        Matries[matrix_mode].pop();
+      }
+
+      function setMatrixUniforms() {
+          gl.uniformMatrix4fv(shaderProgram.projectionMatrixUniform, false, TopMatrix("projection"));
+          gl.uniformMatrix4fv(shaderProgram.viewMatrixUniform, false, TopMatrix("view"));
+          gl.uniformMatrix4fv(shaderProgram.modelMatrixUniform, false, TopMatrix("model"));
+          gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, TopMatrix("normal"));
+          gl.uniformMatrix4fv(shaderProgram.LightModelMatrixUniform, false, TopMatrix("lightmodel"));
+          //尚未用到的矩陣
+          //gl.uniformMatrix4fv(shaderProgram.colorMatrixUniform, false, TopMatrix("color"));
+          //gl.uniformMatrix4fv(shaderProgram.textureMatrixUniform, false, TopMatrix("texture"));
+      }
+
+      function degToRad(degrees) {
+        return degrees * Math.PI / 180;
+      }
+
+      var viewHead = 0;
+      var viewRoll = 0;
+      var viewEpitch = 10;
+      var viewUppos = -5;
+      var viewRight = 0;
+      var viewZoom = 0;
+
+      var currentlyPressedKeys = {};
+
+      function handleKeyDown(event) {
+        currentlyPressedKeys[event.keyCode] = true;
+      }
+
+      function handleKeyUp(event) {
+        currentlyPressedKeys[event.keyCode] = false;
+      }
+
+      function handleKeys() {
+        if (currentlyPressedKeys[83]) viewZoom += 0.05; //w
+        if (currentlyPressedKeys[87]) viewZoom -= 0.05; //s
+        if (currentlyPressedKeys[65]) viewRight += 0.05; //a
+        if (currentlyPressedKeys[68]) viewRight -= 0.05; //d
+        if (currentlyPressedKeys[90]) viewUppos += 0.05; //z
+        if (currentlyPressedKeys[88]) viewUppos -= 0.05; //x
+
+        if (currentlyPressedKeys[82]) viewEpitch += 0.5; //r
+        if (currentlyPressedKeys[70]) viewEpitch -= 0.5; //f
+        if (currentlyPressedKeys[84]) viewHead += 0.5; //t
+        if (currentlyPressedKeys[71]) viewHead -= 0.5; //g
+        if (currentlyPressedKeys[89]) viewRoll += 0.5; //y
+        if (currentlyPressedKeys[72]) viewRoll -= 0.5; //h
+
+        if (currentlyPressedKeys[81]){ //Q, 攝影機復位
+          viewHead = 0;
+          viewRoll = 0;
+          viewEpitch = 0;
+          viewUppos = 0;
+          viewRight = 0;
+          viewZoom = 0;
+        }
+        if (currentlyPressedKeys[33]) {
+          // Page Up
+          z -= 0.05;
+        }
+        if (currentlyPressedKeys[34]) {
+          // Page Down
+          z += 0.05;
+        }
+        if (currentlyPressedKeys[37]) {
+          // Left cursor key
+          ySpeed -= 1;
+        }
+        if (currentlyPressedKeys[39]) {
+          // Right cursor key
+          ySpeed += 1;
+        }
+        if (currentlyPressedKeys[38]) {
+          // Up cursor key
+          xSpeed -= 1;
+        }
+        if (currentlyPressedKeys[40]) {
+          // Down cursor key
+          xSpeed += 1;
+        }
+      }
+
+      var cubeVertexPositionBuffer;
+      var cubeVertexNormalBuffer;
+      var cubeVertexTextureCoordBuffer;
+      var cubeVertexIndexBuffer;
+
+      var moonVertexPositionBuffer;
+      var moonVertexNormalBuffer;
+      var moonVertexTextureCoordBuffer;
+      var moonVertexIndexBuffer;
+
+      var mirrorVertexPositionBuffer;
+      var mirrorVertexNormalBuffer;
+      var mirrorVertexIndexBuffer;
+
+      function initBuffers() {
+        cubeVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
+        vertices = [
+          // Front face
+          -1.0, -1.0,  1.0,
+          1.0, -1.0,  1.0,
+          1.0,  1.0,  1.0,
+          -1.0,  1.0,  1.0,
+
+          // Back face
+          -1.0, -1.0, -1.0,
+          -1.0,  1.0, -1.0,
+          1.0,  1.0, -1.0,
+          1.0, -1.0, -1.0,
+
+          // Top face
+          -1.0,  1.0, -1.0,
+          -1.0,  1.0,  1.0,
+          1.0,  1.0,  1.0,
+          1.0,  1.0, -1.0,
+
+          // Bottom face
+          -1.0, -1.0, -1.0,
+          1.0, -1.0, -1.0,
+          1.0, -1.0,  1.0,
+          -1.0, -1.0,  1.0,
+
+          // Right face
+          1.0, -1.0, -1.0,
+          1.0,  1.0, -1.0,
+          1.0,  1.0,  1.0,
+          1.0, -1.0,  1.0,
+
+          // Left face
+          -1.0, -1.0, -1.0,
+          -1.0, -1.0,  1.0,
+          -1.0,  1.0,  1.0,
+          -1.0,  1.0, -1.0
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        cubeVertexPositionBuffer.itemSize = 3;
+        cubeVertexPositionBuffer.numItems = 24;
+
+        cubeVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
+        var vertexNormals = [
+          // Front face
+          0.0,  0.0,  1.0,
+          0.0,  0.0,  1.0,
+          0.0,  0.0,  1.0,
+          0.0,  0.0,  1.0,
+
+          // Back face
+          0.0,  0.0, -1.0,
+          0.0,  0.0, -1.0,
+          0.0,  0.0, -1.0,
+          0.0,  0.0, -1.0,
+
+          // Top face
+          0.0,  1.0,  0.0,
+          0.0,  1.0,  0.0,
+          0.0,  1.0,  0.0,
+          0.0,  1.0,  0.0,
+
+          // Bottom face
+          0.0, -1.0,  0.0,
+          0.0, -1.0,  0.0,
+          0.0, -1.0,  0.0,
+          0.0, -1.0,  0.0,
+
+          // Right face
+          1.0,  0.0,  0.0,
+          1.0,  0.0,  0.0,
+          1.0,  0.0,  0.0,
+          1.0,  0.0,  0.0,
+
+          // Left face
+          -1.0,  0.0,  0.0,
+          -1.0,  0.0,  0.0,
+          -1.0,  0.0,  0.0,
+          -1.0,  0.0,  0.0,
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexNormals), gl.STATIC_DRAW);
+        cubeVertexNormalBuffer.itemSize = 3;
+        cubeVertexNormalBuffer.numItems = 24;
+
+        cubeVertexTextureCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
+        var textureCoords = [
+          // Front face
+          0.0, 0.0,
+          1.0, 0.0,
+          1.0, 1.0,
+          0.0, 1.0,
+
+          // Back face
+          1.0, 0.0,
+          1.0, 1.0,
+          0.0, 1.0,
+          0.0, 0.0,
+
+          // Top face
+          0.0, 1.0,
+          0.0, 0.0,
+          1.0, 0.0,
+          1.0, 1.0,
+
+          // Bottom face
+          1.0, 1.0,
+          0.0, 1.0,
+          0.0, 0.0,
+          1.0, 0.0,
+
+          // Right face
+          1.0, 0.0,
+          1.0, 1.0,
+          0.0, 1.0,
+          0.0, 0.0,
+
+          // Left face
+          0.0, 0.0,
+          1.0, 0.0,
+          1.0, 1.0,
+          0.0, 1.0,
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoords), gl.STATIC_DRAW);
+        cubeVertexTextureCoordBuffer.itemSize = 2;
+        cubeVertexTextureCoordBuffer.numItems = 24;
+
+        cubeVertexIndexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
+        var cubeVertexIndices = [
+          0, 1, 2,      0, 2, 3,    // Front face
+          4, 5, 6,      4, 6, 7,    // Back face
+          8, 9, 10,     8, 10, 11,  // Top face
+          12, 13, 14,   12, 14, 15, // Bottom face
+          16, 17, 18,   16, 18, 19, // Right face
+          20, 21, 22,   20, 22, 23  // Left face
+        ];
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(cubeVertexIndices), gl.STATIC_DRAW);
+        cubeVertexIndexBuffer.itemSize = 1;
+        cubeVertexIndexBuffer.numItems = 36;
+
+
+        var latitudeBands = 30;
+        var longitudeBands = 30;
+        var radius = 2;
+
+        var vertexPositionData = [];
+        var normalData = [];
+        var textureCoordData = [];
+        for (var latNumber=0; latNumber <= latitudeBands; latNumber++) {
+          var theta = latNumber * Math.PI / latitudeBands;
+          var sinTheta = Math.sin(theta);
+          var cosTheta = Math.cos(theta);
+
+          for (var longNumber=0; longNumber <= longitudeBands; longNumber++) {
+            var phi = longNumber * 2 * Math.PI / longitudeBands;
+            var sinPhi = Math.sin(phi);
+            var cosPhi = Math.cos(phi);
+
+            var x = cosPhi * sinTheta;
+            var y = cosTheta;
+            var z = sinPhi * sinTheta;
+            var u = 1 - (longNumber / longitudeBands);
+            var v = 1 - (latNumber / latitudeBands);
+
+            normalData.push(x);
+            normalData.push(y);
+            normalData.push(z);
+            textureCoordData.push(u);
+            textureCoordData.push(v);
+            vertexPositionData.push(radius * x);
+            vertexPositionData.push(radius * y);
+            vertexPositionData.push(radius * z);
+          }
+        }
+
+        var indexData = [];
+        for (var latNumber=0; latNumber < latitudeBands; latNumber++) {
+          for (var longNumber=0; longNumber < longitudeBands; longNumber++) {
+            var first = (latNumber * (longitudeBands + 1)) + longNumber;
+            var second = first + longitudeBands + 1;
+            indexData.push(first);
+            indexData.push(second);
+            indexData.push(first + 1);
+
+            indexData.push(second);
+            indexData.push(second + 1);
+            indexData.push(first + 1);
+          }
+        }
+
+        moonVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, moonVertexNormalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normalData), gl.STATIC_DRAW);
+        moonVertexNormalBuffer.itemSize = 3;
+        moonVertexNormalBuffer.numItems = normalData.length / 3;
+
+        moonVertexTextureCoordBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, moonVertexTextureCoordBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(textureCoordData), gl.STATIC_DRAW);
+        moonVertexTextureCoordBuffer.itemSize = 2;
+        moonVertexTextureCoordBuffer.numItems = textureCoordData.length / 2;
+
+        moonVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, moonVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexPositionData), gl.STATIC_DRAW);
+        moonVertexPositionBuffer.itemSize = 3;
+        moonVertexPositionBuffer.numItems = vertexPositionData.length / 3;
+
+        moonVertexIndexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, moonVertexIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indexData), gl.STREAM_DRAW);
+        moonVertexIndexBuffer.itemSize = 1;
+        moonVertexIndexBuffer.numItems = indexData.length;
+
+        mirrorVertexPositionBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, mirrorVertexPositionBuffer);
+        vertices = [
+          // Back face
+          -1.0, -1.0, -1.0,
+          -1.0,  1.0, -1.0,
+          1.0,  1.0, -1.0,
+          1.0, -1.0, -1.0,
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+        mirrorVertexPositionBuffer.itemSize = 3;
+        mirrorVertexPositionBuffer.numItems = 4;
+
+        mirrorVertexNormalBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, mirrorVertexNormalBuffer);
+        var vertexNormals = [
+
+          // Back face
+          0.0,  0.0, -1.0,
+          0.0,  0.0, -1.0,
+          0.0,  0.0, -1.0,
+          0.0,  0.0, -1.0,
+
+        ];
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexNormals), gl.STATIC_DRAW);
+        mirrorVertexNormalBuffer.itemSize = 3;
+        mirrorVertexNormalBuffer.numItems = 4;
+
+        mirrorVertexIndexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mirrorVertexIndexBuffer);
+        var mirrorVertexIndices = [
+          0, 1, 2,      0, 2, 3,
+          2, 1, 0,      3, 2, 0
+        ];
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(mirrorVertexIndices), gl.STATIC_DRAW);
+        mirrorVertexIndexBuffer.itemSize = 1;
+        mirrorVertexIndexBuffer.numItems = 12;
+
+        initMatrix();
+      }
+
+
+      var moonAngle = 180;
+      var cubeAngle = 0;
+
+      //-----------------------------------------------------------------------------
+      // Name: mirror( )
+      // Desc: draws mirror pane
+      //-----------------------------------------------------------------------------
+      function mirror( val )
+      {
+        return [
+          // Back face
+          -val, -val, -1.0,
+          -val,  val, -1.0,
+          val,  val, -1.0,
+          val, -val, -1.0,
+          //-val, -1.0,-val,
+          //-val, -1.0, val,
+          // val, -1.0, val,
+          // val, -1.0,-val,
+        ];
+      }
+
+      function reshape(width, height){
+        gl.viewportWidth = width;
+        gl.viewportHeight = height;
+        gl.viewport(0, 0, gl.viewportWidth, gl.viewportHeight);
+        mat4.identity(TopMatrix("projection"));
+        mat4.perspective(45, gl.viewportWidth / gl.viewportHeight, 0.1, 100.0, TopMatrix("projection"));
+        //Define the current eye position and the eye-coordinate system
+        mat4.identity(TopMatrix("view"));
+
+        //Define Viewing Matrix
+        mat4.lookAt([0.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0], TopMatrix("view"));
+      }
+
+      function drawScene() {
+
+        foggy_effect = {
+          density:parseFloat(document.getElementById("FogDensity").value),
+          color:[
+            parseFloat(document.getElementById("FogR").value),
+            parseFloat(document.getElementById("FogG").value),
+            parseFloat(document.getElementById("FogB").value),
+          1.0],
+          type:document.getElementById("FogType").selectedIndex,
+          depthType:document.getElementById("DepthType").selectedIndex
+        };
+        UpdateFog(foggy_effect);
+        // Draw the Scene
+        PushMatrix("model");
+          mat4.rotate(TopMatrix("model"), degToRad(moonAngle), [0, 1, 0]);
+          mat4.translate(TopMatrix("model"), [5, 0, 0]);
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, moonTexture);
+          gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, moonVertexPositionBuffer);
+          gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, moonVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, moonVertexTextureCoordBuffer);
+          gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, moonVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, moonVertexNormalBuffer);
+          gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, moonVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, moonVertexIndexBuffer);
+          setMatrixUniforms();
+          front_material = {
+            ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+            diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
+            specular:[0.05, 0.05, 0.05, 1.0],//描述物體的鏡面反射
+            emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+            shiness:511
+          };
+          UpdateMaterial(front_material);
+          gl.drawElements(gl.TRIANGLES, moonVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+        PopMatrix("model");
+
+        PushMatrix("model");
+          mat4.rotate(TopMatrix("model"), degToRad(cubeAngle), [0, 1, 0]);
+          mat4.translate(TopMatrix("model"), [5, 0, 0]);
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexPositionBuffer);
+          gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, cubeVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexNormalBuffer);
+          gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, cubeVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
+          gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+          gl.activeTexture(gl.TEXTURE0);
+          gl.bindTexture(gl.TEXTURE_2D, crateTexture);
+          gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, cubeVertexIndexBuffer);
+
+          front_material = {
+            ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+            diffuse:[1.0, 1.0, 1.0, 1.0],//描述物體的曼反射
+            specular:[0.3, 0.3, 0.3, 1.0],//描述物體的鏡面反射
+            emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+            shiness:255
+          };
+          UpdateMaterial(front_material);
+          setMatrixUniforms();
+          gl.drawElements(gl.TRIANGLES, cubeVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+        PopMatrix("model");
+      }
+      function drawMirror(val){
+        UpdateMaterial(front_material);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, mirrorVertexPositionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(mirror(val)), gl.STATIC_DRAW);
+        gl.vertexAttribPointer(shaderProgram.vertexPositionAttribute, mirrorVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, mirrorVertexNormalBuffer);
+        gl.vertexAttribPointer(shaderProgram.vertexNormalAttribute, mirrorVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, cubeVertexTextureCoordBuffer);
+        gl.vertexAttribPointer(shaderProgram.textureCoordAttribute, cubeVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, crateTexture);
+        gl.uniform1i(shaderProgram.samplerUniform, 0);
+
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mirrorVertexIndexBuffer);
+        setMatrixUniforms();
+        gl.drawElements(gl.TRIANGLES, mirrorVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+      }
+
+      function display() {
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        if(document.getElementById("FogType").selectedIndex != 0){
+          gl.clearColor(
+            parseFloat(document.getElementById("FogR").value),
+            parseFloat(document.getElementById("FogG").value),
+            parseFloat(document.getElementById("FogB").value),
+          1.0);
+        }else{
+          gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        }
+        var lighting = document.getElementById("lighting").checked;
+        gl.uniform1i(shaderProgram.useLightingUniform, lighting);
+        if (lighting) {
+          light_sources[0].position = [
+            parseFloat(document.getElementById("lightPositionX").value),
+            parseFloat(document.getElementById("lightPositionY").value),
+            parseFloat(document.getElementById("lightPositionZ").value),
+            1.0
+          ];
+          light_sources[0].diffuse = [
+            parseFloat(document.getElementById("DiffuseR").value),
+            parseFloat(document.getElementById("DiffuseG").value),
+            parseFloat(document.getElementById("DiffuseB").value),
+            1.0
+          ];
+          light_sources[0].ambient = [
+            parseFloat(document.getElementById("ambientR").value),
+            parseFloat(document.getElementById("ambientG").value),
+            parseFloat(document.getElementById("ambientB").value),
+            1.0
+          ];
+          light_sources[0].specular = [
+            parseFloat(document.getElementById("SpecularR").value),
+            parseFloat(document.getElementById("SpecularG").value),
+            parseFloat(document.getElementById("SpecularB").value),
+            1.0
+          ];
+          UpdateLighting();
+        }
+        var mirror_size = parseFloat(document.getElementById("MirrorSize").value);
+        PushMatrix("view");
+          //Camera control
+          mat4.rotate(TopMatrix("view"), degToRad(viewHead), [0.0, 1.0, 0.0]);
+          mat4.rotate(TopMatrix("view"), degToRad(viewRoll), [0.0, 0.0, 1.0]);
+          mat4.rotate(TopMatrix("view"), degToRad(viewEpitch), [1.0, 0.0, 0.0]);
+          mat4.translate(TopMatrix("view"), [0.0, viewUppos, 0.0]);
+          mat4.translate(TopMatrix("view"), [-viewRight, 0.0, 0.0]);
+          mat4.translate(TopMatrix("view"), [0.0, 0.0, -viewZoom]);
+
+          mat4.identity(TopMatrix("model"));
+          mat4.translate(TopMatrix("model"), [0, 0, -20]);
+
+          gl.enable(gl.STENCIL_TEST);
+            PushMatrix("model");
+              mat4.translate(TopMatrix("model"), [0, 0, -20]);
+              //建立鏡子的方式是直接移動到鏡子內的坐標系畫一次反射的場景，
+              //回到世界坐標系再在畫一次一班場景
+              //但這樣會因此在畫鏡子內物品時只能讓他畫在鏡子的範圍內
+              //因此這時需要模具緩衝器(Stencil Buffer)，其功能有如遮罩
+              //先將之前模具(Stencil)中的遮罩值清零
+              gl.clearStencil(0x00);
+              gl.clear(gl.STENCIL_BUFFER_BIT);
+              //現在我們要建構模具(Stencil)中的遮罩，因此先用ALWAYS，讓他都會作用
+              gl.stencilFunc(gl.ALWAYS, 0x1, 0x1 );
+              gl.stencilOp(gl.REPLACE, gl.REPLACE, gl.REPLACE);
+              //開啟Stencil Buffer中每一個位元的寫入
+              gl.stencilMask(0xff);
+              //關閉depth Buffer的寫入
+              gl.depthMask(false);
+              //關閉color Buffer每個Channel的寫入
+              gl.colorMask(false, false, false, false);
+              //做完以上設定，使得所有繪圖動作僅會作用於Stencil Buffer
+
+              //建立和鏡子形狀相同的遮罩
+              drawMirror(mirror_size);
+
+              //關閉Stencil Buffer中每一個位元的寫入
+              gl.stencilMask(0x00);
+              //開啟depth Buffer以及olor Buffer的寫入
+              gl.depthMask(true);
+              gl.colorMask(true, true, true, true);
+              //gl.KEEP使得之後的操作會讓stencil Buffer的值原封不動地保持
+              gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+            PopMatrix("model");
+
+            gl.clear( gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT );
+            PushMatrix("model");
+              //建立鏡面反射坐標系 (Reflected space)
+              mat4.translate(TopMatrix("model"), [0, 0, -20]);
+              mat4.scale(TopMatrix("model"), [1.0, 1.0, -1.0]);
+              mat4.translate(TopMatrix("model"), [0, 0, 20]);
+              //只在剛才在stencil Buffer畫出的 "和鏡子一樣形狀" 的位置做畫
+              gl.stencilFunc(gl.EQUAL, 0x1, 0x1);
+
+              mat4.set(TopMatrix("model"),TopMatrix("lightmodel"));
+              //建立鏡中光源
+              mat4.translate(TopMatrix("lightmodel"), [0, 0, 20]);
+              //在鏡面反射坐標系畫場景及物件
+              drawScene();
+              mat4.identity(TopMatrix("lightmodel"));
+              //離開鏡面反射坐標系 (Reflected space)
+            PopMatrix("model");
+            //回到世界坐標系 (World space)
+            //剛才化的深度不算數，實際上只有一片鏡子，先全部清掉
+            gl.clear( gl.DEPTH_BUFFER_BIT );
+            //關閉模具(Stencil)測試
+          gl.disable(gl.STENCIL_TEST);
+
+          //移到鏡子的位置，畫鏡子
+          PushMatrix("model");
+            //關閉Color Buffer (只畫Depth Buffer)
+            gl.colorMask(false, false, false, false);
+            mat4.translate(TopMatrix("model"), [0, 0, -20]);
+            //讓鏡子的位置已有物體，以便進行深度測試
+            drawMirror(mirror_size);
+            //開啟Color Buffer
+            gl.colorMask(true, true, true, true);
+            //畫鏡子的材質，但因為是透明的，因此啟用blending (畫玻璃)
+            gl.enable(gl.BLEND);
+              gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
+              var r_factor = (parseFloat(document.getElementById("reflectfactor").value));
+              gl.uniform1b(shaderProgram.EnableTextureUniform, false);
+              gl.uniform1f(shaderProgram.MirrorBlendUniform, r_factor);
+
+              //不能與鏡子重複位置 (因為Depth Buffer以記錄該位置有鏡子，會畫不上去)
+              mat4.translate(TopMatrix("model"), [0, 0, 0.1]);
+              //設定鏡子玻璃面的材質
+              front_material = {
+                ambient:[
+                  (parseFloat(document.getElementById("MirrorR").value) * r_factor),
+                  (parseFloat(document.getElementById("MirrorG").value) * r_factor),
+                  (parseFloat(document.getElementById("MirrorB").value) * r_factor),
+                1.0],
+                diffuse:[
+                  (parseFloat(document.getElementById("MirrorR").value) * r_factor),
+                  (parseFloat(document.getElementById("MirrorG").value) * r_factor),
+                  (parseFloat(document.getElementById("MirrorB").value) * r_factor),
+                1.0],
+                specular:[0.9, 0.9, 0.9, 1.0],
+                emission:[0.0, 0.0, 0.0, 1.0],
+                shiness:255
+              };
+              //繪製鏡子玻璃面
+              drawMirror(mirror_size);
+              gl.uniform1f(shaderProgram.MirrorBlendUniform, 1.0);
+              gl.uniform1b(shaderProgram.EnableTextureUniform, true);
+              //畫完玻璃
+            gl.disable(gl.BLEND);
+            //鏡子的背面是木頭
+            front_material = {
+              ambient:[1.0, 1.0, 1.0, 1.0],//描述物體對環境光的反射程度
+              diffuse:[0.5, 0.5, 0.5, 1.0],//描述物體的曼反射
+              specular:[0.9, 0.9, 0.9, 1.0],//描述物體的鏡面反射
+              emission:[0.0, 0.0, 0.0, 1.0],//描述物體的自發光
+              shiness:255
+            };
+            //畫在相對鏡子的背面
+            mat4.translate(TopMatrix("model"), [0, 0, -0.2]);
+            drawMirror(mirror_size);
+            //畫完鏡子
+          PopMatrix("model");
+          //畫場景，除了鏡子外的其他物品。
+          drawScene();
+
+        PopMatrix("view");
+      }
+
+      var lastTime = 0;
+
+      function animate() {
+        var timeNow = new Date().getTime();
+        if (lastTime != 0) {
+          var elapsed = timeNow - lastTime;
+
+          moonAngle += 0.05 * elapsed;
+          cubeAngle += 0.05 * elapsed;
+        }
+        lastTime = timeNow;
+      }
+      function tick() {
+        requestAnimFrame(tick);
+        handleKeys();
+        display();
+        animate();
+      }
+      function webGLStart() {
+        document.getElementById("DepthType").selectedIndex = 1;
+        document.getElementById("FogType").selectedIndex = 0;
+
+        var canvas = document.getElementById("lesson13-canvas");
+        initGL(canvas);
+        initShaders();
+        initBuffers();
+        initTextures();
+        initMaterial();
+        initLighting();
+        initFog();
+        gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        gl.enable(gl.DEPTH_TEST);
+
+        reshape(canvas.width, canvas.height);
+        document.onkeydown = handleKeyDown;
+        document.onkeyup = handleKeyUp;
+
+        tick();
+      }
+    </script>
+  </head>
+
+  <body onload="webGLStart();">
+    <h2>Lesson 11 : Mirror Effect & Foggy Effect</h2><br />
+    <canvas id="lesson13-canvas" style="border: none;" width="500" height="500"></canvas>
+    <br />
+    <input type="checkbox" id="lighting" checked /> Use lighting<br/>
+    <br/>
+    <h2>Mirror Effect:</h2>
+    <table style="border: 0; padding: 10px;">
+      <tr>
+        <td><b>Size: </b></td>
+        <td><b>reflect factor (0-1): </b></td>
+      </tr>
+      <tr>
+        <td><input type="text" id="MirrorSize" value="2.5" /></td>
+        <td><input type="text" id="reflectfactor" value="0.5" /></td>
+      </tr>
+      <tr>
+        <td><b>Color:</b></td>
+        <td>X: <input type="text" id="MirrorR" value="1.0" /></td>
+        <td>Y: <input type="text" id="MirrorG" value="1.0" /></td>
+        <td>Z: <input type="text" id="MirrorB" value="1.0" /></td>
+      </tr>
+    </table>
+    <h2>Foggy Effect:</h2>
+    <table style="border: 0; padding: 10px;">
+      <tr>
+        <td><b>FogType:</b></td>
+        <td><b>DepthType:</b></td>
+        <td><b>density:</b></td>
+      </tr>
+      <tr>
+        <td>
+          <select id="FogType">
+            <option>None</option>
+            <option>Linear</option>
+            <option>Exponential</option>
+            <option>Exponential Square</option>
+          </select>
+        </td>
+        <td>
+          <select id="DepthType">
+            <option>plane based</option>
+            <option>range based</option>
+          </select>
+        </td>
+        <td><input type="text" id="FogDensity" value="0.05" /></td>
+      </tr>
+      <tr>
+        <td><b>Color:</b></td>
+        <td>X: <input type="text" id="FogR" value="0.5" /></td>
+        <td>Y: <input type="text" id="FogG" value="0.5" /></td>
+        <td>Z: <input type="text" id="FogB" value="0.3" /></td>
+      </tr>
+    </table>
+    <h2>Point light:</h2>
+    <table style="border: 0; padding: 10px;">
+      <tr>
+        <td><b>Location:</b></td>
+        <td>X: <input type="text" id="lightPositionX" value="0.0" /></td>
+        <td>Y: <input type="text" id="lightPositionY" value="0.0" /></td>
+        <td>Z: <input type="text" id="lightPositionZ" value="-20.0" /></td>
+      </tr>
+      <tr>
+        <td><b>Diffuse:</b></td>
+        <td>R: <input type="text" id="DiffuseR" value="0.8" /></td>
+        <td>G: <input type="text" id="DiffuseG" value="0.8" /></td>
+        <td>B: <input type="text" id="DiffuseB" value="0.8" /></td>
+      </tr>
+      <tr>
+        <td><b>Specular:</b></td>
+        <td>R: <input type="text" id="SpecularR" value="0.8" /></td>
+        <td>G: <input type="text" id="SpecularG" value="0.8" /></td>
+        <td>B: <input type="text" id="SpecularB" value="0.8" /></td>
+      </tr>
+      <tr>
+        <td><b>Ambient:</b></td>
+        <td>R: <input type="text" id="ambientR" value="0.3" /></td>
+        <td>G: <input type="text" id="ambientG" value="0.3" /></td>
+        <td>B: <input type="text" id="ambientB" value="0.3" /></td>
+      </tr>
+    </table>
+    <br/>
+    Moon texture courtesy of <a href="http://maps.jpl.nasa.gov/">the Jet Propulsion Laboratory</a>.
+    <br/>
+    <br/>
+  </body>
+</html>

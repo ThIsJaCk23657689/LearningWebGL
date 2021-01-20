@@ -1,0 +1,40 @@
+mtllib tetrahedron.mtl
+
+o Tetrahedron
+
+  v 1.0 -1.0 -1.0
+  v -1.0 -1.0 1.0
+  v 1.0 1.0 1.0
+  v -1.0 1.0 -1.0
+
+  vt 1.0 0.0
+  vt 1.0 0.5
+  vt 0.5 0.25
+  vt 0.5 1.0
+  vt 0.0 0.75
+  vt 0.5 0.5
+  vt 0.5 0.0
+  vt 0.0 0.25
+  vt 1.0 1.0
+  vt 0.5 0.75
+
+  vn 0.5774 0.5774 0.5774
+  vn 0.5774 -0.5774 -0.5774
+  vn -0.5774 -0.5774 0.5774
+  vn -0.5774 0.5774 -0.5774
+
+  vp 0.0 0.0 0.0
+
+  usemtl Material
+  s off
+  g Tetrahedron_surface
+    f 2/1/1 1/2/1 4/3/1
+    f 3/4/2 2/5/2 4/6/2
+    f 3/7/3 4/6/3 1/8/3
+    f 2/9/4 3/10/4 1/2/4
+  # symbol '#' is a comment, just like // in C++
+  #Line segment information is not necessary (The edge can be calculated by using face and vertex.)
+  g Tetrahedron_line_segments
+    l 2 1 1 4 4 2
+    l 3 2 4 3
+    l 1 3
